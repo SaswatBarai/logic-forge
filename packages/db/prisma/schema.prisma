@@ -1,6 +1,5 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -11,7 +10,7 @@ datasource db {
 model GameSession {
   id        String    @id @default(uuid()) @map("_id")
   userId    String // Linked to MongoDB User._id manually
-  status    String // 'LOBBY', 'IN_PROGRESS', 'COMPLETED'
+  status    String
   score     Int       @default(0)
   startedAt DateTime  @default(now())
   endedAt   DateTime?
