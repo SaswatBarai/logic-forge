@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # Primary Database
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-logicforge}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - logicforge-net
+
+  # Cache & Pub/Sub
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - logicforge-net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  logicforge-net:
+    driver: bridge

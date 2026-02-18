@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  /* Define your project-specific overrides here using CSS variables */
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "Fira Code", monospace;
+
+  --color-primary: #3b82f6;
+  --color-secondary: #1e293b;
+}
+
+/* Custom Utilities */
+@utility container {
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
