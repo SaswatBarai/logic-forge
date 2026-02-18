@@ -1,45 +1,45 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Core Game Data
 model GameSession {
-  id        String   @id @default(uuid())
-  userId    String   // Linked to MongoDB User._id manually
-  status    String   // 'LOBBY', 'IN_PROGRESS', 'COMPLETED'
-  score     Int      @default(0)
-  startedAt DateTime @default(now())
+  id        String    @id @default(uuid()) @map("_id")
+  userId    String // Linked to MongoDB User._id manually
+  status    String // 'LOBBY', 'IN_PROGRESS', 'COMPLETED'
+  score     Int       @default(0)
+  startedAt DateTime  @default(now())
   endedAt   DateTime?
-  
+
   submissions Submission[]
 
   @@index([userId])
 }
 
 model Question {
-  id          String   @id @default(uuid())
+  id          String @id @default(uuid()) @map("_id")
   title       String
   description String
-  difficulty  String   // 'EASY', 'MEDIUM', 'HARD'
-  category    String   // 'DSA', 'DEBUGGING', 'SYSTEM_DESIGN'
-  testCases   Json     // Stored as JSON for flexibility
-  
+  difficulty  String // 'EASY', 'MEDIUM', 'HARD'
+  category    String // 'DSA', 'DEBUGGING', 'SYSTEM_DESIGN'
+  testCases   Json // Stored as JSON for flexibility
+
   submissions Submission[]
 }
 
 model Submission {
-  id            String   @id @default(uuid())
+  id            String   @id @default(uuid()) @map("_id")
   gameSessionId String
   questionId    String
   code          String
-  status        String   // 'PASSED', 'FAILED', 'TLE'
-  executionTime Int?     // in ms
-  memoryUsed    Int?     // in KB
+  status        String // 'PASSED', 'FAILED', 'TLE'
+  executionTime Int? // in ms
+  memoryUsed    Int? // in KB
   createdAt     DateTime @default(now())
 
   gameSession GameSession @relation(fields: [gameSessionId], references: [id])
