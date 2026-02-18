@@ -1,9 +1,10 @@
 version: '3.8'
 
 services:
-  # Primary Database
+  # 1. Core Database (PostgreSQL) - For Game Logic & Questions
   postgres:
     image: postgres:15-alpine
+    container_name: logicforge-postgres
     ports:
       - "5432:5432"
     environment:
@@ -15,9 +16,24 @@ services:
     networks:
       - logicforge-net
 
-  # Cache & Pub/Sub
+  # 2. Auth Database (MongoDB) - For Users, Sessions, Accounts
+  mongo:
+    image: mongo:6.0
+    container_name: logicforge-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - logicforge-net
+
+  # 3. Cache (Redis) - For Real-time State
   redis:
     image: redis:7-alpine
+    container_name: logicforge-redis
     ports:
       - "6379:6379"
     volumes:
@@ -27,6 +43,7 @@ services:
 
 volumes:
   postgres_data:
+  mongo_data:
   redis_data:
 
 networks:
