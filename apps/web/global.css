@@ -1,16 +1,186 @@
 @import "tailwindcss";
 
-@theme {
-  /* Define your project-specific overrides here using CSS variables */
-  --font-sans: "Inter", sans-serif;
-  --font-mono: "Fira Code", monospace;
+/* Spline Sans - retro arcade display font */
+@import url("https://fonts.googleapis.com/css2?family=Spline+Sans:wght@400;500;600;700;800&display=swap");
 
-  --color-primary: #3b82f6;
-  --color-secondary: #1e293b;
+/* ---------------------------------------------------------------------------
+   Design tokens - LogicForge retro arcade theme (hero-hues-dance reference)
+   Cream bg, navy text, gold accents, red/green for status.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Light theme - pale yellow/cream background, dark grey/black text (design photo) */
+  --background: 48 38% 96%;
+  --foreground: 222 25% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 25% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 25% 9%;
+  --primary: 48 100% 50%;
+  --primary-foreground: 222 25% 9%;
+  --secondary: 48 25% 93%;
+  --secondary-foreground: 222 25% 9%;
+  --muted: 48 20% 91%;
+  --muted-foreground: 222 15% 40%;
+  --accent: 142 71% 45%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 222 20% 85%;
+  --input: 222 20% 85%;
+  --ring: 222 25% 9%;
+  --radius: 0.5rem;
+  --navy: 230 35% 14%;
+  --cream: 48 38% 96%;
+  --gold: 48 100% 50%;
+  --red: 0 84% 60%;
+  --green: 142 71% 45%;
+  --shadow-retro: 4px 4px 0 0 hsl(222 25% 9% / 0.3);
+  --shadow-retro-sm: 2px 2px 0 0 hsl(222 25% 9% / 0.25);
+  --shadow-retro-lg: 6px 6px 0 0 hsl(222 25% 9% / 0.4);
+  /* Code editor - dark purplish-blue to match design */
+  --editor-bg: 230 35% 12%;
+  --editor-header: 230 30% 16%;
 }
 
-/* Custom Utilities */
+.dark {
+  --background: 222 47% 8%;
+  --foreground: 40 33% 96%;
+  --card: 222 40% 12%;
+  --card-foreground: 40 33% 96%;
+  --popover: 222 40% 12%;
+  --popover-foreground: 40 33% 96%;
+  --primary: 43 96% 56%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 222 30% 18%;
+  --secondary-foreground: 40 33% 96%;
+  --muted: 222 30% 18%;
+  --muted-foreground: 40 15% 65%;
+  --accent: 142 71% 45%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 222 30% 22%;
+  --input: 222 30% 22%;
+  --ring: 43 96% 56%;
+  --shadow-retro: 4px 4px 0 0 hsl(0 0% 0% / 0.5);
+  --shadow-retro-sm: 2px 2px 0 0 hsl(0 0% 0% / 0.4);
+  --shadow-retro-lg: 6px 6px 0 0 hsl(0 0% 0% / 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Tailwind v4 theme (generates utilities from design tokens).
+   --------------------------------------------------------------------------- */
+@theme {
+  --font-sans: "Spline Sans", sans-serif;
+  --font-mono: "Fira Code", monospace;
+  --font-display: "Spline Sans", sans-serif;
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-navy: hsl(var(--navy));
+  --color-cream: hsl(var(--cream));
+  --color-gold: hsl(var(--gold));
+  --color-accent-red: hsl(var(--red));
+  --color-accent-green: hsl(var(--green));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --shadow-retro: var(--shadow-retro);
+  --shadow-retro-sm: var(--shadow-retro-sm);
+  --shadow-retro-lg: var(--shadow-retro-lg);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-float: float 3s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Keyframes (tailwindcss-animate / custom) */
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Custom utilities
+   --------------------------------------------------------------------------- */
 @utility container {
   margin-inline: auto;
-  padding-inline: 1rem;
+  padding-inline: 2rem;
+  max-width: 1400px;
+}
+
+@utility border-3 {
+  border-width: 3px;
+}
+
+/* ---------------------------------------------------------------------------
+   Landing page utilities
+   --------------------------------------------------------------------------- */
+.grid-bg {
+  background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.arcade-btn {
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.health-bar-segment {
+  width: 8px;
+  height: 8px;
+  background-color: hsl(var(--accent));
+  border: 1px solid hsl(var(--foreground));
 }
