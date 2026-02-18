@@ -167,6 +167,9 @@ importers:
       '@logicforge/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@logicforge/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@logicforge/logger':
         specifier: workspace:*
         version: link:../../packages/logger
