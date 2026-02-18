@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. Core Database (PostgreSQL) - For Game Logic & Questions
+  # 1. PostgreSQL (Core Data)
   postgres:
     image: postgres:15-alpine
     container_name: logicforge-postgres
@@ -15,8 +15,13 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - logicforge-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # 2. Auth Database (MongoDB) - For Users, Sessions, Accounts
+  # 2. MongoDB (Auth Data)
   mongo:
     image: mongo:6.0
     container_name: logicforge-mongo
@@ -29,8 +34,13 @@ services:
       - mongo_data:/data/db
     networks:
       - logicforge-net
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
-  # 3. Cache (Redis) - For Real-time State
+  # 3. Redis (Cache)
   redis:
     image: redis:7-alpine
     container_name: logicforge-redis
@@ -40,6 +50,11 @@ services:
       - redis_data:/data
     networks:
       - logicforge-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
