@@ -1,0 +1,16 @@
+{
+    "name": "@logicforge/db",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "dependencies": {
+      "pg": "^8.11.3"
+    },
+    "devDependencies": {
+      "@logicforge/tsconfig": "workspace:*",
+      "@types/pg": "^8.10.9",
+      "typescript": "^5.3.3"
+    }
+  }

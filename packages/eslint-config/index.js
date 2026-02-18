@@ -1,0 +1,12 @@
+export default {
+    extends: ["next", "turbo", "prettier"],
+    rules: {
+      "@next/next/no-html-link-for-pages": "off",
+    },
+    parserOptions: {
+      sourceType: "module",
+      babelOptions: {
+        presets: ["next/babel"],
+      },
+    },
+  };

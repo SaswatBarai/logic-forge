@@ -1,0 +1,17 @@
+{
+    "name": "@logicforge/auth",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "dependencies": {
+      "jsonwebtoken": "^9.0.2",
+      "zod": "^3.22.4"
+    },
+    "devDependencies": {
+      "@logicforge/tsconfig": "workspace:*",
+      "@types/jsonwebtoken": "^9.0.5",
+      "typescript": "^5.3.3"
+    }
+  }
