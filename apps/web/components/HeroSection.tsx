@@ -5,10 +5,10 @@ import { Hero3D } from "./Hero3D";
 
 export const HeroSection = () => {
   return (
-    <section className="max-w-7xl mx-auto px-6 py-20 lg:py-32 grid lg:grid-cols-2 gap-16 items-center relative">
+    <section className="min-h-[90vh] max-w-7xl mx-auto px-6 py-24 lg:py-40 grid lg:grid-cols-2 gap-20 items-center relative">
       <div className="flex flex-col gap-8 z-10">
         <motion.h1
-          className="text-6xl md:text-8xl font-black leading-[0.9] tracking-tighter text-foreground cursor-pointer"
+          className="text-7xl md:text-8xl lg:text-9xl font-black leading-[0.9] tracking-tighter text-foreground cursor-pointer"
           initial={{ opacity: 0, x: -60 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.1, ease: [0.22, 1, 0.36, 1] }}
