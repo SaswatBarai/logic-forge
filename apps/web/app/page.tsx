@@ -9,7 +9,6 @@ import { Footer } from "@/components/Footer";
 export default function HomePage() {
   return (
     <div className="relative min-h-screen flex flex-col bg-background">
-      <div className="absolute inset-0 grid-bg pointer-events-none opacity-60" />
       <Navbar />
       <main className="flex-grow">
         <HeroSection />

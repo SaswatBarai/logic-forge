@@ -10,14 +10,14 @@ function RetroShape() {
 
   useFrame((state) => {
     if (meshRef.current) {
-      meshRef.current.rotation.x = state.clock.elapsedTime * 0.3;
-      meshRef.current.rotation.y = state.clock.elapsedTime * 0.5;
+      meshRef.current.rotation.x = state.clock.elapsedTime * 0.5;
+      meshRef.current.rotation.y = state.clock.elapsedTime * 0.8;
     }
   });
 
   return (
     <Float speed={2} rotationIntensity={0.5} floatIntensity={1}>
-      <mesh ref={meshRef} scale={1.8}>
+      <mesh ref={meshRef as any} scale={1.8}>
         <icosahedronGeometry args={[1, 1]} />
         <MeshDistortMaterial
           color="#f5b400"
@@ -42,7 +42,7 @@ function WireframeBox() {
   });
 
   return (
-    <mesh ref={meshRef} position={[2, -1, -1]} scale={1.2}>
+    <mesh ref={meshRef as any} position={[2, -1, -1]} scale={1.2}>
       <boxGeometry args={[1, 1, 1]} />
       <meshBasicMaterial color="#2A9D8F" wireframe />
     </mesh>
@@ -60,7 +60,7 @@ function SmallSphere() {
   });
 
   return (
-    <mesh ref={meshRef} position={[-1.5, 1.5, 0.5]} scale={0.4}>
+    <mesh ref={meshRef as any} position={[-1.5, 1.5, 0.5]} scale={0.4}>
       <sphereGeometry args={[1, 8, 8]} />
       <meshBasicMaterial color="#E63946" wireframe />
     </mesh>

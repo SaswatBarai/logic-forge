@@ -11,7 +11,7 @@ export const HeroSection = () => {
           className="text-6xl md:text-8xl font-black leading-[0.9] tracking-tighter text-foreground cursor-pointer"
           initial={{ opacity: 0, x: -60 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.1, ease: [0.22, 1, 0.36, 1] }}
           whileHover={{
             color: "hsl(43, 96%, 56%)",
             textShadow: "4px 4px 0px hsl(222, 47%, 11%)",

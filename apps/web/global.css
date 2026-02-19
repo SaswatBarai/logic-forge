@@ -8,8 +8,8 @@
    Cream bg, navy text, gold accents, red/green for status.
    --------------------------------------------------------------------------- */
 :root {
-  /* Light theme - pale yellow/cream background, dark grey/black text (design photo) */
-  --background: 48 38% 96%;
+  /* Light theme - #fff7d1 background, dark grey/black text */
+  --background: 50 100% 91%;
   --foreground: 222 25% 9%;
   --card: 0 0% 100%;
   --card-foreground: 222 25% 9%;
@@ -169,11 +169,6 @@
 /* ---------------------------------------------------------------------------
    Landing page utilities
    --------------------------------------------------------------------------- */
-.grid-bg {
-  background-image: radial-gradient(hsl(var(--border)) 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-
 .arcade-btn {
   transition: box-shadow 0.15s, transform 0.15s;
 }
