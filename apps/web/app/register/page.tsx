@@ -3,63 +3,53 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { Terminal, Lock, Mail, User, ArrowLeft, Loader2, Github } from "lucide-react";
 import { signIn } from "next-auth/react";
-import { Terminal, Lock, Mail, Github, ArrowLeft, Loader2 } from "lucide-react";
 
-export default function LoginPage() {
+export default function RegisterPage() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
-  // Loading states for better UX
+  // Loading states
   const [isCredentialsLoading, setIsCredentialsLoading] = useState(false);
   const [isGithubLoading, setIsGithubLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  // Combined loading state to disable all inputs/buttons if any process is active
   const isLoading = isCredentialsLoading || isGithubLoading || isGoogleLoading;
 
-  // Handle standard Email/Password Login
-  const handleCredentialsLogin = async (e: React.FormEvent) => {
+  // Handle standard Email/Password Registration
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsCredentialsLoading(true);
     
     try {
-      // Calls the 'credentials' provider configured in your auth.ts
-      await signIn("credentials", {
-        email,
-        password,
-        callbackUrl: "/dashboard", // Redirects here on success
-      });
+      // TODO: We will need to create an API route (/api/auth/register) later 
+      // to handle storing the user in the database via Prisma.
+      console.log("Registering user:", { name, email, password });
+      
+      // For now, simulate a network request
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // After successful registration, you usually sign them in automatically
+      // await signIn("credentials", { email, password, callbackUrl: "/dashboard" });
     } catch (error) {
-      console.error("Login failed:", error);
-      // Here you would typically set an error state to show a toast/message
+      console.error("Registration failed:", error);
     } finally {
       setIsCredentialsLoading(false);
     }
   };
 
-  // Handle GitHub OAuth Login
   const handleGithubLogin = async () => {
     setIsGithubLoading(true);
-    try {
-      await signIn("github", { callbackUrl: "/dashboard" });
-    } catch (error) {
-      console.error("GitHub Auth failed:", error);
-    } finally {
-      setIsGithubLoading(false);
-    }
+    try { await signIn("github", { callbackUrl: "/dashboard" }); } 
+    catch (error) { console.error(error); setIsGithubLoading(false); }
   };
 
-  // Handle Google OAuth Login
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
-    try {
-      await signIn("google", { callbackUrl: "/dashboard" });
-    } catch (error) {
-      console.error("Google Auth failed:", error);
-    } finally {
-      setIsGoogleLoading(false);
-    }
+    try { await signIn("google", { callbackUrl: "/dashboard" }); } 
+    catch (error) { console.error(error); setIsGoogleLoading(false); }
   };
 
   return (
@@ -78,7 +68,7 @@ export default function LoginPage() {
         </Link>
       </header>
 
-      {/* Main Login Container */}
+      {/* Main Container */}
       <main className="flex-grow flex items-center justify-center p-6 relative overflow-hidden">
         {/* Decorative Background Elements */}
         <div className="absolute inset-0 z-0 opacity-20 pointer-events-none grid-background" />
@@ -94,26 +84,15 @@ export default function LoginPage() {
             <div className="bg-card rounded-lg overflow-hidden flex flex-col h-full">
               
               {/* Terminal Header */}
-              <div
-                className="px-4 py-3 border-b-2 border-foreground flex justify-between items-center bg-black/40"
-              >
+              <div className="px-4 py-3 border-b-2 border-foreground flex justify-between items-center bg-black/40">
                 <div className="flex gap-2">
-                  <motion.div
-                    className="size-3 rounded-full bg-destructive border border-foreground"
-                    whileHover={{ scale: 1.2 }}
-                  />
-                  <motion.div
-                    className="size-3 rounded-full bg-primary border border-foreground"
-                    whileHover={{ scale: 1.2 }}
-                  />
-                  <motion.div
-                    className="size-3 rounded-full bg-accent border border-foreground"
-                    whileHover={{ scale: 1.2 }}
-                  />
+                  <motion.div className="size-3 rounded-full bg-destructive border border-foreground" whileHover={{ scale: 1.2 }} />
+                  <motion.div className="size-3 rounded-full bg-primary border border-foreground" whileHover={{ scale: 1.2 }} />
+                  <motion.div className="size-3 rounded-full bg-accent border border-foreground" whileHover={{ scale: 1.2 }} />
                 </div>
                 <div className="text-[10px] sm:text-xs font-mono text-foreground/70 uppercase tracking-widest flex items-center gap-2">
                   <Terminal className="size-3" />
-                  Auth_Gateway.exe
+                  Recruit_Onboarding.exe
                 </div>
                 <div className="flex gap-1">
                   <div className="w-2 h-3 bg-primary border border-foreground" />
@@ -122,11 +101,11 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Login Form Content */}
+              {/* Form Content */}
               <div className="p-6 sm:p-8 flex flex-col gap-6 text-foreground">
                 <div className="flex flex-col gap-2">
                   <h1 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter">
-                    System Login
+                    New Recruit
                     <motion.span
                       animate={{ opacity: [1, 0, 1] }}
                       transition={{ repeat: Infinity, duration: 1 }}
@@ -136,11 +115,27 @@ export default function LoginPage() {
                     </motion.span>
                   </h1>
                   <p className="text-sm font-mono text-foreground/70">
-                    &gt; Enter credentials to access the arena.
+                    &gt; Initialize your LogicForge profile.
                   </p>
                 </div>
 
-                <form className="flex flex-col gap-5" onSubmit={handleCredentialsLogin}>
+                <form className="flex flex-col gap-4" onSubmit={handleRegister}>
+                  {/* Name Input */}
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 font-mono">
+                      <User className="size-3 text-primary" /> Call Sign (Name)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Alan Turing"
+                      className="bg-background border-2 border-foreground p-3 font-mono text-sm text-foreground focus:outline-none focus:border-primary transition-colors placeholder:text-foreground/30 disabled:opacity-50"
+                      disabled={isLoading}
+                    />
+                  </div>
+
                   {/* Email Input */}
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 font-mono">
@@ -159,13 +154,8 @@ export default function LoginPage() {
 
                   {/* Password Input */}
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 font-mono justify-between">
-                      <div className="flex items-center gap-2">
-                        <Lock className="size-3 text-primary" /> Password
-                      </div>
-                      <Link href="/forgot-password" className="text-foreground/70 hover:text-primary lowercase tracking-normal">
-                        Forgot?
-                      </Link>
+                    <label className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 font-mono">
+                      <Lock className="size-3 text-primary" /> Secure Password
                     </label>
                     <input
                       type="password"
@@ -182,7 +172,7 @@ export default function LoginPage() {
                   <motion.button
                     type="submit"
                     disabled={isLoading}
-                    className="w-full arcade-btn bg-primary text-primary-foreground px-6 py-4 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex justify-center items-center gap-3 mt-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                    className="w-full arcade-btn bg-primary text-primary-foreground px-6 py-4 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex justify-center items-center gap-3 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
                     whileHover={!isLoading ? {
                       scale: 1.02,
                       boxShadow: "4px 4px 0px 0px hsl(var(--foreground))",
@@ -197,16 +187,16 @@ export default function LoginPage() {
                     {isCredentialsLoading ? (
                       <>
                         <Loader2 className="size-5 animate-spin" /> 
-                        Authenticating...
+                        Processing...
                       </>
                     ) : (
-                      "Authenticate"
+                      "Initialize Account"
                     )}
                   </motion.button>
                 </form>
 
                 {/* Divider */}
-                <div className="flex items-center gap-4 py-2">
+                <div className="flex items-center gap-4 py-1">
                   <div className="flex-1 h-0.5 bg-foreground/30" />
                   <span className="font-mono text-xs font-bold uppercase tracking-widest text-foreground/50">
                     OR
@@ -224,9 +214,7 @@ export default function LoginPage() {
                     whileHover={!isLoading ? { scale: 1.02 } : {}}
                     whileTap={!isLoading ? { scale: 0.98 } : {}}
                   >
-                    {isGoogleLoading ? (
-                      <Loader2 className="size-5 animate-spin" />
-                    ) : (
+                    {isGoogleLoading ? <Loader2 className="size-5 animate-spin" /> : (
                       <svg viewBox="0 0 24 24" className="size-5" fill="currentColor">
                         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                         <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
@@ -245,23 +233,19 @@ export default function LoginPage() {
                     whileHover={!isLoading ? { scale: 1.02 } : {}}
                     whileTap={!isLoading ? { scale: 0.98 } : {}}
                   >
-                    {isGithubLoading ? (
-                      <Loader2 className="size-5 animate-spin" />
-                    ) : (
-                      <Github className="size-5" />
-                    )}
+                    {isGithubLoading ? <Loader2 className="size-5 animate-spin" /> : <Github className="size-5" />}
                     {isGithubLoading ? "Connecting..." : "Continue with GitHub"}
                   </motion.button>
                 </div>
 
                 {/* Footer Link */}
                 <p className="text-center text-xs font-mono font-bold mt-2">
-                  NEW RECRUIT?{" "}
+                  ALREADY IN THE SYSTEM?{" "}
                   <Link
-                    href="/register"
+                    href="/login"
                     className="text-primary uppercase underline decoration-2 underline-offset-4 hover:text-foreground transition-colors"
                   >
-                    INITIATE SIGN UP
+                    EXECUTE LOGIN
                   </Link>
                 </p>
               </div>
