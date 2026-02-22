@@ -1,14 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Terminal, Lock, Mail, Github, ArrowLeft, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [configError, setConfigError] = useState(false);
+
+  useEffect(() => {
+    setConfigError(searchParams.get("error") === "Configuration");
+  }, [searchParams]);
   
   // Loading states for better UX
   const [isCredentialsLoading, setIsCredentialsLoading] = useState(false);
@@ -139,6 +146,12 @@ export default function LoginPage() {
                     &gt; Enter credentials to access the arena.
                   </p>
                 </div>
+
+                {configError && (
+                  <div className="rounded-lg border-2 border-destructive/50 bg-destructive/10 px-4 py-3 font-mono text-sm text-destructive">
+                    <strong>Configuration error.</strong> Often caused by MongoDB auth (check MONGO_URL and server logs). See <code className="text-xs">docs/MONGO_AUTH_FIX.md</code>.
+                  </div>
+                )}
 
                 <form className="flex flex-col gap-5" onSubmit={handleCredentialsLogin}>
                   {/* Email Input */}

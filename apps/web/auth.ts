@@ -1,16 +1,16 @@
 import NextAuth from "next-auth";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
-import { authDb } from "@logicforge/db";
-
-console.log("=== authDb in auth.ts ===", authDb);
+import { getMongooseAuthAdapter } from "@logicforge/db";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   debug: process.env.NODE_ENV === "development",
-  adapter: PrismaAdapter(authDb as unknown as Parameters<typeof PrismaAdapter>[0]),
-  session: { strategy: "jwt" },
+  adapter: getMongooseAuthAdapter(),
+  // NOTE: Do NOT set session.strategy here when using an adapter.
+  // NextAuth defaults to "database" strategy when an adapter is provided,
+  // which is required for OAuth providers to persist accounts correctly.
+  // Forcing "jwt" with an adapter causes `error=Configuration` on OAuth callback.
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -24,11 +24,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async session({ token, session }) {
-      if (token.sub && session.user) {
-        session.user.id = token.sub;
-      }
+    async session({ session }) {
+      // With database sessions, user.id is populated from the adapter directly
       return session;
+    },
+  },
+  logger: {
+    error(error) {
+      console.error("[NEXTAUTH_CRASH]:", error);
+    },
+    warn(code) {
+      console.warn("[NEXTAUTH_WARN]:", code);
+    },
+    debug(code, metadata) {
+      console.log("[NEXTAUTH_DEBUG]:", code, metadata);
     },
   },
   pages: {

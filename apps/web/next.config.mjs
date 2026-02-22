@@ -3,12 +3,12 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@logicforge/ui"],
   experimental: {
-    serverComponentsExternalPackages: ["@prisma/mongo-client", "@prisma/client"],
+    serverComponentsExternalPackages: ["@prisma/client", "mongoose", "mongodb"],
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals || [];
-      config.externals.push("@prisma/mongo-client", "@logicforge/db");
+      config.externals.push("mongoose", "mongodb");
     }
     return config;
   },
