@@ -6,17 +6,31 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Terminal, Lock, Mail, Github, ArrowLeft, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 export default function LoginPage() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [configError, setConfigError] = useState(false);
+  const router = useRouter();
+  const { data: session, status } = useSession();
+
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push("/dashboard");
+    }
+  }, [status, router]);
+
+  // if (status === "authenticated") {
+  //   return null; // Prevent rendering while redirecting
+  // }
 
   useEffect(() => {
     setConfigError(searchParams.get("error") === "Configuration");
   }, [searchParams]);
-  
+
   // Loading states for better UX
   const [isCredentialsLoading, setIsCredentialsLoading] = useState(false);
   const [isGithubLoading, setIsGithubLoading] = useState(false);
@@ -29,7 +43,7 @@ export default function LoginPage() {
   const handleCredentialsLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsCredentialsLoading(true);
-    
+
     try {
       // Calls the 'credentials' provider configured in your auth.ts
       await signIn("credentials", {

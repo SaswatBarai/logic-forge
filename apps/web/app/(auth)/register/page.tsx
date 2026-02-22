@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Terminal, Lock, Mail, User, ArrowLeft, Loader2, Github } from "lucide-react";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 export default function RegisterPage() {
   const [name, setName] = useState("");
@@ -15,6 +17,14 @@ export default function RegisterPage() {
   const [isCredentialsLoading, setIsCredentialsLoading] = useState(false);
   const [isGithubLoading, setIsGithubLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const router = useRouter();
+    const { data: session, status } = useSession();
+  
+    useEffect(() => {
+      if (status === "authenticated") {
+        router.push("/dashboard");
+      }
+    }, [status, router]);
 
   const isLoading = isCredentialsLoading || isGithubLoading || isGoogleLoading;
 
