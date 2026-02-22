@@ -2,12 +2,18 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+// Import useSession to read the authentication state
 import { useSession } from "next-auth/react";
 
 export const Navbar = () => {
-  const {data: session, status} = useSession();
-  const isLoading = status === "loading";
-  const isAuthenticated = status === "authenticated";
+  // Read the current login status
+  const { status } = useSession();
+
+  // Determine where the button should take the user
+  const targetRoute = status === "authenticated" ? "/dashboard" : "/login";
+  // Dynamically change the button text so it makes sense
+  const buttonText = status === "authenticated" ? "Dashboard" : "Press Start";
+
   return (
     <motion.header
       className="sticky top-0 z-50 px-6 py-4 border-b-2 border-foreground bg-background/95 backdrop-blur-sm"
@@ -47,9 +53,9 @@ export const Navbar = () => {
             </motion.div>
           ))}
         </nav>
-        <a href={
-          isAuthenticated ? "/dashboard" : "/login"
-        }>
+        
+        {/* Replaced <a href="#cta"> with Next.js dynamic <Link> */}
+        <Link href={targetRoute}>
           <motion.button
             className="arcade-btn bg-primary px-6 py-2 border-2 border-foreground shadow-retro text-sm font-black uppercase tracking-widest"
             whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
@@ -63,9 +69,9 @@ export const Navbar = () => {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
           >
-            Press Start
+            {buttonText}
           </motion.button>
-        </a>
+        </Link>
       </div>
     </motion.header>
   );

@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { Toaster as ToastToaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/Provider";
+
 export const metadata: Metadata = {
   title: "LogicForge - AI-Proof Technical Evaluation",
   description:
@@ -23,10 +24,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground antialiased font-sans">
+        {/* Wrap the entire application in the authentication provider */}
         <Providers>
           {children}
-        <Toaster />
-        <ToastToaster />
+          <Toaster />
+          <ToastToaster />
         </Providers>
       </body>
     </html>
