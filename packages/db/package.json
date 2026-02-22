@@ -7,12 +7,14 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "db:generate": "prisma generate --config ./prisma.config.ts && prisma generate --config ./prisma.mongo.config.ts",
-    "db:push": "prisma db push --config ./prisma.config.ts && prisma db push --config ./prisma.mongo.config.ts",
+    "db:generate": "prisma generate --config ./prisma.config.ts",
+    "db:push": "prisma db push --config ./prisma.config.ts",
     "studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
+    "mongoose": "^9.2.1",
+    "next-auth": "5.0.0-beta.30",
     "zod": "^3.22.4"
   },
   "devDependencies": {
