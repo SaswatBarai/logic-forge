@@ -4,9 +4,13 @@ import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import { authDb } from "@logicforge/db";
 
+console.log("=== authDb in auth.ts ===", authDb);
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(authDb as unknown as Parameters<typeof PrismaAdapter>[0]), 
-  session: { strategy: "jwt" }, 
+  trustHost: true,
+  debug: process.env.NODE_ENV === "development",
+  adapter: PrismaAdapter(authDb as unknown as Parameters<typeof PrismaAdapter>[0]),
+  session: { strategy: "jwt" },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,

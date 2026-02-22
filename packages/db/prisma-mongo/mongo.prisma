@@ -5,6 +5,7 @@ generator mongoClient {
 
 datasource mongodb {
   provider = "mongodb"
+  url      = env("MONGO_URL")
 }
 
 // NextAuth.js Models
