@@ -77,14 +77,15 @@ let UserModel: mongoose.Model<Doc>;
 let AccountModel: mongoose.Model<Doc>;
 let SessionModel: mongoose.Model<Doc>;
 
-async function getModels() {
+export async function getModels() {
   await getAuthConnection();
   if (!UserModel) {
     // Use the default mongoose.connection which was established by mongoose.connect()
     const conn = mongoose.connection;
-    UserModel = conn.model("User", UserSchema) as unknown as mongoose.Model<Doc>;
-    AccountModel = conn.model("Account", AccountSchema) as unknown as mongoose.Model<Doc>;
-    SessionModel = conn.model("Session", SessionSchema) as unknown as mongoose.Model<Doc>;
+    // Check if models already exist on the connection to avoid "Cannot overwrite model" error
+    UserModel = (conn.models.User as unknown as mongoose.Model<Doc>) || conn.model("User", UserSchema) as unknown as mongoose.Model<Doc>;
+    AccountModel = (conn.models.Account as unknown as mongoose.Model<Doc>) || conn.model("Account", AccountSchema) as unknown as mongoose.Model<Doc>;
+    SessionModel = (conn.models.Session as unknown as mongoose.Model<Doc>) || conn.model("Session", SessionSchema) as unknown as mongoose.Model<Doc>;
   }
   return { UserModel, AccountModel, SessionModel };
 }

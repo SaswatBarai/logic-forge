@@ -10,4 +10,5 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export { getMongooseAuthAdapter } from "./mongoose-auth";
+export { getModels } from "./mongoose-auth";
 export * from "@prisma/client";
