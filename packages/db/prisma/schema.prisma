@@ -7,41 +7,201 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Core Game Data
-model GameSession {
-  id        String    @id @default(uuid()) @map("_id")
-  userId    String // Linked to MongoDB User._id manually
-  status    String
-  score     Int       @default(0)
-  startedAt DateTime  @default(now())
-  endedAt   DateTime?
+// ─── Enums ───────────────────────────────────────────────────────────
 
-  submissions Submission[]
-
-  @@index([userId])
+enum SessionType {
+  TIMER
+  LIVE
 }
 
-model Question {
-  id          String @id @default(uuid()) @map("_id")
-  title       String
-  description String
-  difficulty  String // 'EASY', 'MEDIUM', 'HARD'
-  category    String // 'DSA', 'DEBUGGING', 'SYSTEM_DESIGN'
-  testCases   Json // Stored as JSON for flexibility
+enum PlayerFormat {
+  SINGLE
+  DUAL
+}
 
-  submissions Submission[]
+enum SessionStatus {
+  LOBBY
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum RoundStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  SKIPPED
+  TIMED_OUT
+}
+
+enum SubmissionVerdict {
+  CORRECT
+  INCORRECT
+  PARTIAL
+  TIMEOUT
+  RUNTIME_ERROR
+  COMPILE_ERROR
+}
+
+enum ChallengeCategory {
+  THE_MISSING_LINK
+  THE_BOTTLENECK_BREAKER
+  STATE_TRACING
+  SYNTAX_ERROR_DETECTION
+}
+
+enum StoryChapter {
+  THE_ARCHIVE
+  THE_SHIELD_GENERATOR
+  THE_AETHER_STREAM
+}
+
+enum GameMode {
+  ARCADE
+  STORY
+}
+
+enum Language {
+  JAVA
+  CPP
+  PYTHON
+}
+
+// ─── Core Game Models ────────────────────────────────────────────────
+
+model GameSession {
+  id             String            @id @default(uuid())
+  userId         String            // FK to MongoDB User._id
+  mode           GameMode
+  sessionType    SessionType?
+  playerFormat   PlayerFormat      @default(SINGLE)
+  category       ChallengeCategory?
+  language       Language?
+  status         SessionStatus     @default(LOBBY)
+  totalScore     Int               @default(0)
+  livesRemaining Int?
+  currentRound   Int               @default(1)
+  maxRounds      Int               @default(5)
+  startedAt      DateTime          @default(now())
+  endedAt        DateTime?
+  metadata       Json?
+
+  rounds         Round[]
+  riskScore      RiskScore?
+  dualAsPlayer1  DualMatch?        @relation("player1")
+  dualAsPlayer2  DualMatch?        @relation("player2")
+
+  @@index([userId])
+  @@index([status])
+  @@index([mode])
+}
+
+model Round {
+  id           String      @id @default(uuid())
+  sessionId    String
+  roundNumber  Int
+  challengeId  String
+  status       RoundStatus @default(PENDING)
+  startedAt    DateTime?
+  endedAt      DateTime?
+  timeLimitMs  Int         @default(60000)
+  score        Int         @default(0)
+
+  session      GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  challenge    Challenge   @relation(fields: [challengeId], references: [id])
+  submission   Submission?
+
+  @@unique([sessionId, roundNumber])
+  @@index([challengeId])
+}
+
+model Challenge {
+  id             String            @id @default(uuid())
+  category       ChallengeCategory
+  difficulty     Difficulty
+  title          String
+  description    String
+  codeTemplate   String            // Base code with gap/error
+  solution       Json              // Correct answer(s)
+  testCases      Json              // Input/output pairs for execution
+  hints          Json?
+  language       Language
+  semanticTokens Json              // Map of placeholder → token type for randomization
+  timeLimitMs    Int               @default(60000)
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  rounds         Round[]
+
+  @@index([category, difficulty])
+  @@index([language])
+  @@index([active])
 }
 
 model Submission {
-  id            String   @id @default(uuid()) @map("_id")
-  gameSessionId String
-  questionId    String
-  code          String
-  status        String // 'PASSED', 'FAILED', 'TLE'
-  executionTime Int? // in ms
-  memoryUsed    Int? // in KB
-  createdAt     DateTime @default(now())
+  id              String           @id @default(uuid())
+  roundId         String           @unique
+  code            String
+  verdict         SubmissionVerdict
+  executionTimeMs Int?
+  memoryUsedKb    Int?
+  compilerOutput  String?
+  testResults     Json?            // Per-test-case pass/fail + output
+  submittedAt     DateTime         @default(now())
 
-  gameSession GameSession @relation(fields: [gameSessionId], references: [id])
-  question    Question    @relation(fields: [questionId], references: [id])
+  round           Round            @relation(fields: [roundId], references: [id], onDelete: Cascade)
+}
+
+// ─── Story Mode ──────────────────────────────────────────────────────
+
+model StoryProgress {
+  id          String       @id @default(uuid())
+  userId      String
+  chapter     StoryChapter
+  status      String       @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED
+  score       Int          @default(0)
+  data        Json?        // Chapter-specific state
+  startedAt   DateTime     @default(now())
+  completedAt DateTime?
+
+  @@unique([userId, chapter])
+  @@index([userId])
+}
+
+// ─── Dual Mode ───────────────────────────────────────────────────────
+
+model DualMatch {
+  id        String      @id @default(uuid())
+  player1Id String      @unique
+  player2Id String?     @unique
+  status    String      @default("WAITING") // WAITING | MATCHED | IN_PROGRESS | COMPLETED
+  winnerId  String?
+  createdAt DateTime    @default(now())
+
+  player1   GameSession @relation("player1", fields: [player1Id], references: [id], onDelete: Cascade)
+  player2   GameSession? @relation("player2", fields: [player2Id], references: [id], onDelete: SetNull)
+}
+
+// ─── Anti-Cheat ──────────────────────────────────────────────────────
+
+model RiskScore {
+  id                  String      @id @default(uuid())
+  sessionId           String      @unique
+  windowFocusLoss     Int         @default(0)
+  keystrokeFlagsCount Int         @default(0)
+  timeAnomalyCount    Int         @default(0)
+  aggregateScore      Float       @default(0)
+  flagged             Boolean     @default(false)
+  rawEvents           Json?       // Timestamped telemetry log
+  computedAt          DateTime    @default(now())
+
+  session             GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }

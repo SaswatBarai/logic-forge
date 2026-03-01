@@ -56,6 +56,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # 4. Code Execution Sandbox Service
+  code-runner:
+    build:
+      context: ./apps/code-runner
+      dockerfile: Dockerfile
+    container_name: logicforge-code-runner
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT_CODE_RUNNER=3004
+      - NODE_ENV=development
+    networks:
+      - logicforge-net
+
 volumes:
   postgres_data:
   mongo_data:

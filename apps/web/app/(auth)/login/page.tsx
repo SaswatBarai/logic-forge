@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -9,7 +9,7 @@ import { Terminal, Lock, Mail, Github, ArrowLeft, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-export default function LoginPage() {
+function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -113,7 +113,7 @@ export default function LoginPage() {
           {/* Terminal Window Wrapper */}
           <div className="bg-foreground rounded-xl p-1 shadow-retro-lg border-2 border-foreground">
             <div className="bg-card rounded-lg overflow-hidden flex flex-col h-full">
-              
+
               {/* Terminal Header */}
               <div
                 className="px-4 py-3 border-b-2 border-foreground flex justify-between items-center bg-black/40"
@@ -223,7 +223,7 @@ export default function LoginPage() {
                   >
                     {isCredentialsLoading ? (
                       <>
-                        <Loader2 className="size-5 animate-spin" /> 
+                        <Loader2 className="size-5 animate-spin" />
                         Authenticating...
                       </>
                     ) : (
@@ -297,5 +297,13 @@ export default function LoginPage() {
         </motion.div>
       </main>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center text-foreground font-mono">LOADING SECURE TUNNEL...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

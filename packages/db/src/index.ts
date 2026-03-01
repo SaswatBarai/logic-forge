@@ -9,6 +9,8 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = db;
 }
 
-export { getMongooseAuthAdapter } from "./mongoose-auth";
-export { getModels } from "./mongoose-auth";
+// Re-export all Prisma types (enums, model types, etc.)
 export * from "@prisma/client";
+
+// Re-export Mongoose auth adapter
+export { getMongooseAuthAdapter, getModels } from "./mongoose-auth";

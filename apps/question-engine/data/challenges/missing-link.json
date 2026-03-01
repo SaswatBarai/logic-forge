@@ -1,0 +1,74 @@
+[
+    {
+        "category": "THE_MISSING_LINK",
+        "difficulty": "EASY",
+        "language": "PYTHON",
+        "title": "Reverse Array",
+        "description": "The function below should reverse the `dataPoints` array in place, but a critical condition is missing from the loop constraint.",
+        "codeTemplate": "def reverse_array(dataPoints):\n    left = 0\n    right = len(dataPoints) - 1\n    while ________:\n        dataPoints[left], dataPoints[right] = dataPoints[right], dataPoints[left]\n        left += 1\n        right -= 1\n    return dataPoints",
+        "solution": {
+            "answers": [
+                "left < right",
+                "left <= right"
+            ]
+        },
+        "testCases": [
+            {
+                "input": "[1, 2, 3, 4, 5]",
+                "expectedOutput": "[5, 4, 3, 2, 1]"
+            },
+            {
+                "input": "[]",
+                "expectedOutput": "[]"
+            }
+        ],
+        "hints": [
+            "Consider when the indices cross each other."
+        ],
+        "semanticTokens": {
+            "dataPoints": {
+                "type": "variable",
+                "context": "COLLECTION"
+            },
+            "reverse_array": {
+                "type": "function",
+                "context": "PROCESS"
+            }
+        },
+        "timeLimitMs": 45000
+    },
+    {
+        "category": "THE_BOTTLENECK_BREAKER",
+        "difficulty": "MEDIUM",
+        "language": "JAVA",
+        "title": "Two Sum Optimization",
+        "description": "This function finds if two elements sum to the target, but its O(N^2) complexity will timeout on large inputs. Identify the correct data structure and refactor to O(N) time.",
+        "codeTemplate": "public boolean hasPairSum(int[] measurements, int target) {\n    for (int i = 0; i < measurements.length; i++) {\n        for (int j = i + 1; j < measurements.length; j++) {\n            if (measurements[i] + measurements[j] == target) return true;\n        }\n    }\n    return false;\n}",
+        "solution": {
+            "dataStructure": "HashSet",
+            "timeComplexity": "O(N)",
+            "spaceComplexity": "O(N)"
+        },
+        "testCases": [
+            {
+                "input": "[1, 2, 3, 9], 8",
+                "expectedOutput": "false"
+            },
+            {
+                "input": "[1, 2, 4, 4], 8",
+                "expectedOutput": "true"
+            }
+        ],
+        "semanticTokens": {
+            "measurements": {
+                "type": "variable",
+                "context": "COLLECTION"
+            },
+            "hasPairSum": {
+                "type": "function",
+                "context": "PROCESS"
+            }
+        },
+        "timeLimitMs": 60000
+    }
+]
