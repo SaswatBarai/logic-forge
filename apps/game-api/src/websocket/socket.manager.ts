@@ -17,6 +17,9 @@ export interface GameSocket extends WebSocket {
 // but for this phase we keep an in-memory map of sessionId -> GameSocket[]
 export const sessionRooms = new Map<string, Set<GameSocket>>();
 
+// Pre-session mapping: userId -> GameSocket (for notifying queued players of MATCH_FOUND)
+export const userSockets = new Map<string, GameSocket>();
+
 export function setupWebSocketServer(wss: WebSocketServer) {
     wss.on("connection", (ws: WebSocket) => {
         const socket = ws as GameSocket;

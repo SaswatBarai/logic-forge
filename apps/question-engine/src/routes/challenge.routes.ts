@@ -7,7 +7,7 @@ import {
 } from "../handlers/challenge.handler";
 import { seedChallenges } from "../handlers/seed.handler";
 
-const router = Router();
+const router: Router = Router();
 
 // GET /api/v1/challenges
 router.get("/", getChallenges);

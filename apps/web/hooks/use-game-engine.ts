@@ -15,7 +15,10 @@ export function useGameEngine() {
         challenge,
         totalScore,
         opponentScore,
-        remainingMs
+        remainingMs,
+        clearRoundResult,
+        retryConnection,
+        _reconnectAttempt,
     } = useGameStore();
 
     useEffect(() => {
@@ -40,6 +43,10 @@ export function useGameEngine() {
         sendMessage({ type: "JOIN_SESSION", sessionId: sid, token: "mock-auth" });
     }, [sendMessage]);
 
+    const identify = useCallback((userId: string) => {
+        sendMessage({ type: "IDENTIFY", userId });
+    }, [sendMessage]);
+
     const submitCode = useCallback((code: string) => {
         const state = useGameStore.getState();
         if (state.sessionId && state.currentRound > 0) {
@@ -61,8 +68,12 @@ export function useGameEngine() {
 
     return {
         joinSession,
+        identify,
         submitCode,
         readyUp,
+        clearRoundResult,
+        retryConnection,
+        reconnectAttempt: _reconnectAttempt,
         status,
         sessionId,
         error,

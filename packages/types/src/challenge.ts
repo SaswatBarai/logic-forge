@@ -27,7 +27,7 @@ export type ChallengeQuery = z.infer<typeof ChallengeQuerySchema>;
 
 // ─── Random Challenge Query ──────────────────────────────────────────
 export const RandomChallengeQuerySchema = z.object({
-    category: ChallengeCategoryEnum,
+    category: ChallengeCategoryEnum.optional(),
     difficulty: DifficultyEnum.optional(),
     language: LanguageEnum,
     excludeIds: z.array(z.string().uuid()).default([]),

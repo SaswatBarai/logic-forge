@@ -1,8 +1,9 @@
 import { getRedisClient } from "@logicforge/config";
 import { db } from "@logicforge/db";
 import { logger } from "../app";
-import { GameMode, PlayerFormat } from "@logicforge/types";
-import { broadcastToSession } from "../websocket/socket.manager";
+import { GameMode, PlayerFormat, MatchFoundPayload } from "@logicforge/types";
+import { broadcastToSession, userSockets } from "../websocket/socket.manager";
+import { WebSocket } from "ws";
 
 // Redis key for matchmaking queues
 const MATCHMAKER_QUEUE = "matchmaker:queue";
@@ -13,8 +14,9 @@ const MATCHMAKER_QUEUE = "matchmaker:queue";
 export async function findOrQueueMatch(userId: string) {
     const redis = await getRedisClient();
 
-    // Try to pop an opponent
-    const opponentId = await redis.sPop(MATCHMAKER_QUEUE);
+    // Try to pop an opponent (sPop returns string | string[] | null depending on overload)
+    const popped = await redis.sPop(MATCHMAKER_QUEUE);
+    const opponentId = Array.isArray(popped) ? popped[0] ?? null : popped;
 
     if (!opponentId) {
         // Nobody waiting, enqueue self
@@ -33,26 +35,50 @@ export async function findOrQueueMatch(userId: string) {
     logger.info({ p1: userId, p2: opponentId }, "Match found. Creating DualMatch.");
 
     try {
-        const dualMatch = await db.dualMatch.create({
-            data: {
-                player1Id: userId,
-                player2Id: opponentId,
-                status: "MATCHED"
-            }
-        });
-
+        // Create a shared GameSession for both players
         const session = await db.gameSession.create({
             data: {
                 userId,
-                mode: "ARCADE", // Dual maps to Arcade but DUAL format
+                mode: "ARCADE",
                 playerFormat: "DUAL",
                 status: "LOBBY",
-                // We link via the relations from dualMatch, or simplify the model structure.
-                // For now, return the Match ID and both enter a shared WebSocket Lobby
             }
         });
 
-        // They join the single GameSession ID
+        // Create DualMatch linking two GameSession references
+        // player1 and player2 point to GameSession IDs, so we create
+        // lightweight per-player sessions to satisfy FK constraints
+        const p1Session = await db.gameSession.create({
+            data: {
+                userId: opponentId,
+                mode: "ARCADE",
+                playerFormat: "DUAL",
+                status: "LOBBY",
+            }
+        });
+
+        await db.dualMatch.create({
+            data: {
+                player1Id: p1Session.id,
+                player2Id: session.id,
+                status: "MATCHED",
+            }
+        });
+
+        // Notify the queued player (opponentId) via WebSocket about the match
+        const opponentSocket = userSockets.get(opponentId);
+        if (opponentSocket && opponentSocket.readyState === WebSocket.OPEN) {
+            const matchMsg: MatchFoundPayload = {
+                type: "MATCH_FOUND",
+                opponentId: userId,
+                sessionId: session.id,
+            };
+            opponentSocket.send(JSON.stringify(matchMsg));
+            logger.info({ opponentId, sessionId: session.id }, "Sent MATCH_FOUND to queued player");
+        } else {
+            logger.warn({ opponentId }, "Queued player has no active WebSocket — cannot notify");
+        }
+
         return {
             status: "MATCHED",
             sessionId: session.id,

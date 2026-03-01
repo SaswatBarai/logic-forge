@@ -8,6 +8,7 @@ export const WsClientEventEnum = z.enum([
     "SUBMIT_ANSWER",
     "LEAVE_SESSION",
     "PING",
+    "IDENTIFY",
 ]);
 export type WsClientEvent = z.infer<typeof WsClientEventEnum>;
 
@@ -39,12 +40,18 @@ export const PingPayloadSchema = z.object({
     timestamp: z.number(),
 });
 
+export const IdentifyPayloadSchema = z.object({
+    type: z.literal("IDENTIFY"),
+    userId: z.string().min(1),
+});
+
 export const WsClientMessageSchema = z.discriminatedUnion("type", [
     JoinSessionPayloadSchema,
     ReadyPayloadSchema,
     SubmitAnswerWsPayloadSchema,
     LeaveSessionPayloadSchema,
     PingPayloadSchema,
+    IdentifyPayloadSchema,
 ]);
 export type WsClientMessage = z.infer<typeof WsClientMessageSchema>;
 

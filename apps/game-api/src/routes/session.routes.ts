@@ -4,14 +4,14 @@ import { db } from "@logicforge/db";
 import { findOrQueueMatch, dequeueMatch } from "../services/matchmaker.service";
 import { logger } from "../app";
 
-const router = Router();
+const router:Router = Router();
 
 // POST /api/v1/sessions
 router.post("/", async (req: Request, res: Response) => {
     try {
         const payload = CreateSessionSchema.parse(req.body);
-        // Mock user auth checking
-        const userId = "mock-user-id";
+        // Use userId from request body (sent by frontend), fall back to random ID
+        const userId: string = req.body.userId || `anon-${Math.random().toString(36).slice(2, 10)}`;
 
         // Handle Dual Matchmaking initialization
         if (payload.playerFormat === "DUAL") {
@@ -41,7 +41,7 @@ router.post("/", async (req: Request, res: Response) => {
 
 // DEL /api/v1/sessions/queue
 router.delete("/queue", async (req: Request, res: Response) => {
-    const userId = "mock-user-id";
+    const userId: string = req.body?.userId || "unknown";
     await dequeueMatch(userId);
     res.status(200).json({ success: true });
 });
