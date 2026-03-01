@@ -8,6 +8,7 @@ import { signIn } from "next-auth/react";
 import { Terminal, Lock, Mail, Github, ArrowLeft, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -27,9 +28,19 @@ function LoginForm() {
   //   return null; // Prevent rendering while redirecting
   // }
 
+  const urlError = searchParams.get("error");
+  const urlErrorDescription = searchParams.get("error_description");
+  const isConfigError = urlError === "Configuration";
+
   useEffect(() => {
-    setConfigError(searchParams.get("error") === "Configuration");
-  }, [searchParams]);
+    setConfigError(isConfigError);
+  }, [isConfigError]);
+
+  useEffect(() =>{
+    if(configError){
+      toast.error("Configuration error. Often caused by MongoDB auth (check MONGO_URL and server logs). See docs/MONGO_AUTH_FIX.md.");
+    }
+  },[configError])
 
   // Loading states for better UX
   const [isCredentialsLoading, setIsCredentialsLoading] = useState(false);
@@ -162,8 +173,27 @@ function LoginForm() {
                 </div>
 
                 {configError && (
-                  <div className="rounded-lg border-2 border-destructive/50 bg-destructive/10 px-4 py-3 font-mono text-sm text-destructive">
-                    <strong>Configuration error.</strong> Often caused by MongoDB auth (check MONGO_URL and server logs). See <code className="text-xs">docs/MONGO_AUTH_FIX.md</code>.
+                  <div className="rounded-lg border-2 border-destructive/50 bg-destructive/10 px-4 py-3 font-mono text-sm text-destructive space-y-3">
+                    <div>
+                      <strong>Configuration error</strong>
+                      {urlErrorDescription && (
+                        <span className="block mt-1 text-destructive/90 font-normal">{urlErrorDescription}</span>
+                      )}
+                    </div>
+                    <div className="text-foreground/90 font-normal border-t border-destructive/30 pt-3 mt-3 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-widest text-destructive/90">How to debug:</p>
+                      <ol className="list-decimal list-inside space-y-1 text-xs">
+                        <li>Open the <strong>terminal where <code>pnpm dev</code> is running</strong> and look for one of:
+                          <ul className="list-disc list-inside ml-2 mt-1 text-muted-foreground">
+                            <li><code>[auth] MONGO_URL is missing</code> → set MONGO_URL in <code>apps/web/.env</code> or repo root <code>.env</code></li>
+                            <li><code>[mongoose-auth] MongoDB connection failed:</code> → fix the message (start MongoDB, correct URL/password, or <code>?authSource=admin</code>)</li>
+                            <li><code>[adapter] createUser/linkAccount/createSession error:</code> → the next line is the real error</li>
+                          </ul>
+                        </li>
+                        <li>Ensure <code>MONGO_URL</code> and <code>AUTH_SECRET</code> (or <code>NEXTAUTH_SECRET</code>) are in <code>apps/web/.env</code> or the repo root <code>.env</code>.</li>
+                        <li>Restart the dev server after changing <code>.env</code>, then try signing in again.</li>
+                      </ol>
+                    </div>
                   </div>
                 )}
 

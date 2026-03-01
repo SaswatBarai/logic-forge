@@ -25,15 +25,14 @@ export function TimerBar() {
     };
 
     return (
-        <div className="relative w-full h-1.5 bg-zinc-800 overflow-hidden">
+        <div className="relative w-full h-2 border-b-2 border-foreground overflow-hidden" style={{ backgroundColor: "hsl(var(--editor-header))" }}>
             <div
-                className={`h-full bg-gradient-to-r ${color} transition-all duration-1000 ease-linear shadow-[0_0_8px_0px_rgba(16,185,129,0.5)]`}
+                className={`h-full bg-gradient-to-r ${color} transition-all duration-1000 ease-linear`}
                 style={{ width: `${pct}%` }}
             />
             {/* Floating time label */}
             <div
-                className="absolute top-1 right-2 text-[10px] font-mono text-zinc-400 pointer-events-none select-none"
-                style={{ transform: "translateY(4px)" }}
+                className="absolute top-2.5 right-3 text-[10px] font-mono font-black text-slate-400 pointer-events-none select-none tracking-widest"
             >
                 {formatTime(timeRemaining)}
             </div>

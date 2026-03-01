@@ -1,3 +1,4 @@
+import { WebSocket } from "ws";
 import { GameSocket, sessionRooms, userSockets, broadcastToSession, sendError } from "./socket.manager";
 import { WsClientMessage, PongPayload, SessionJoinedPayload, OpponentSubmittedPayload } from "@logicforge/types";
 import { logger } from "../app";
@@ -39,12 +40,17 @@ export async function handleClientMessage(socket: GameSocket, message: WsClientM
             socket.send(JSON.stringify(pong));
             break;
 
-        case "IDENTIFY":
-            // Register this socket under the user's ID for pre-session notifications
-            socket.userId = message.userId;
-            userSockets.set(message.userId, socket);
-            logger.debug({ userId: message.userId, socketId: socket.id }, "Client identified");
+        case "IDENTIFY": {
+            const userId = message.userId;
+            const existing = userSockets.get(userId);
+            if (existing && existing !== socket && existing.readyState === WebSocket.OPEN) {
+                existing.close(1000, "Replaced by new connection");
+            }
+            socket.userId = userId;
+            userSockets.set(userId, socket);
+            logger.debug({ userId, socketId: socket.id }, "Client identified");
             break;
+        }
 
         case "LEAVE_SESSION":
             handleDisconnect(socket);

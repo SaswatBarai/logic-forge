@@ -10,6 +10,7 @@ export interface GameSocket extends WebSocket {
     sessionId?: string; // Bound game session
     userId?: string; // Bound user
     isAlive: boolean; // For ping/pong keepalive
+    _missedPongs?: number; // Consecutive missed pongs (grace before closing)
 }
 
 // In-memory mapping of active connected clients
@@ -25,6 +26,7 @@ export function setupWebSocketServer(wss: WebSocketServer) {
         const socket = ws as GameSocket;
         socket.id = crypto.randomUUID();
         socket.isAlive = true;
+        socket._missedPongs = 0;
 
         logger.debug({ socketId: socket.id }, "New WebSocket connection established");
 
@@ -53,6 +55,7 @@ export function setupWebSocketServer(wss: WebSocketServer) {
 
         socket.on("pong", () => {
             socket.isAlive = true;
+            socket._missedPongs = 0;
         });
 
         socket.on("close", () => {
@@ -65,19 +68,28 @@ export function setupWebSocketServer(wss: WebSocketServer) {
         });
     });
 
-    // Heartbeat interval to drop dead connections
+    // Heartbeat: ping clients; close only after 2 consecutive missed pongs (grace for background tabs)
+    const HEARTBEAT_INTERVAL_MS = 30000;
+    const MISSED_PONGS_BEFORE_CLOSE = 2;
+
     const interval = setInterval(() => {
         wss.clients.forEach((ws) => {
             const socket = ws as GameSocket;
             if (socket.isAlive === false) {
-                handleDisconnect(socket);
-                return socket.terminate();
+                socket._missedPongs = (socket._missedPongs ?? 0) + 1;
+                if (socket._missedPongs >= MISSED_PONGS_BEFORE_CLOSE) {
+                    handleDisconnect(socket);
+                    socket.close(1000, "Heartbeat timeout");
+                    return;
+                }
+            } else {
+                socket._missedPongs = 0;
             }
 
             socket.isAlive = false;
             socket.ping();
         });
-    }, 30000);
+    }, HEARTBEAT_INTERVAL_MS);
 
     wss.on("close", () => {
         clearInterval(interval);

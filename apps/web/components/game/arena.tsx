@@ -8,7 +8,6 @@ import { CodeEditor } from "./code-editor";
 import { PromptCanvas } from "./prompt-canvas";
 import { TimerBar } from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
-import { Button } from "@/components/ui/button";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
 
 export function GameArena() {
@@ -49,30 +48,30 @@ export function GameArena() {
             {/* Between-round result overlay */}
             <RoundResultOverlay />
 
-            <div className="h-[calc(100vh-4rem)] w-full flex flex-col bg-zinc-950 text-white rounded-xl overflow-hidden shadow-2xl border border-zinc-800">
+            <div className="h-[calc(100vh-4rem)] w-full flex flex-col overflow-hidden border-2 border-foreground shadow-retro-lg" style={{ backgroundColor: "hsl(var(--editor-bg))" }}>
 
-                {/* Top HUD */}
-                <div className="flex bg-zinc-900 border-b border-zinc-800 p-4 items-center justify-between shrink-0">
+                {/* Top HUD - retro arcade style */}
+                <div className="flex p-3 items-center justify-between shrink-0 border-b-2 border-foreground" style={{ backgroundColor: "hsl(var(--editor-header))" }}>
                     <div className="flex items-center gap-4">
-                        <div className="flex flex-col bg-black/50 px-4 py-1.5 rounded-md border border-zinc-800">
-                            <span className="text-xs text-zinc-500 uppercase font-semibold">Round</span>
-                            <span className="text-xl font-mono text-zinc-100 font-bold">{currentRound}/{maxRounds}</span>
+                        <div className="bg-primary px-4 py-1.5 border-2 border-foreground shadow-retro-sm">
+                            <span className="text-[10px] font-black uppercase tracking-widest">Round</span>
+                            <span className="text-xl font-mono font-black block">{currentRound}/{maxRounds}</span>
                         </div>
-                        <div className="h-full w-px bg-zinc-800" />
-                        <h1 className="font-semibold text-zinc-100 flex items-center gap-2">
+                        <div className="h-8 w-0.5 bg-foreground/20" />
+                        <h1 className="font-black text-white uppercase tracking-wide flex items-center gap-2 text-sm">
                             <Activity className="h-5 w-5 text-primary" />
                             {challenge.title}
                         </h1>
                     </div>
 
-                    <div className="flex gap-4">
-                        <div className="bg-zinc-800 px-4 py-2 rounded-md font-mono text-sm border border-zinc-700 flex flex-col items-center">
-                            <span className="text-[10px] text-zinc-400">YOU</span>
-                            <span className="font-bold text-emerald-400">{scores.player}</span>
+                    <div className="flex gap-3">
+                        <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
+                            <span className="font-black text-lg font-mono text-accent">{scores.player}</span>
                         </div>
-                        <div className="bg-zinc-800 px-4 py-2 rounded-md font-mono text-sm border border-zinc-700 flex flex-col items-center">
-                            <span className="text-[10px] text-zinc-400">OPPONENT</span>
-                            <span className="font-bold text-rose-400">{scores.opponent}</span>
+                        <div className="bg-destructive/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-destructive">Opp</span>
+                            <span className="font-black text-lg font-mono text-destructive">{scores.opponent}</span>
                         </div>
                     </div>
                 </div>
@@ -84,10 +83,10 @@ export function GameArena() {
                 <ResizablePanelGroup direction="horizontal" className="flex-1">
                     {/* Left Panel: secure canvas prompt */}
                     <ResizablePanel defaultSize={35} minSize={25}>
-                        <div className="h-full p-4 bg-[#09090b]">
+                        <div className="h-full p-4" style={{ backgroundColor: "hsl(230 40% 10%)" }}>
                             <div className="flex items-center gap-2 mb-3 px-1">
-                                <CopyX className="h-4 w-4 text-zinc-500" />
-                                <span className="text-xs font-medium text-zinc-500 uppercase">Secure Brief (Canvas)</span>
+                                <CopyX className="h-4 w-4 text-slate-500" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Secure Brief (Canvas)</span>
                             </div>
                             <PromptCanvas
                                 title={challenge.title}
@@ -96,7 +95,7 @@ export function GameArena() {
                         </div>
                     </ResizablePanel>
 
-                    <ResizableHandle className="w-1 bg-zinc-800 hover:bg-primary transition-colors duration-200" />
+                    <ResizableHandle className="w-0.5 bg-foreground/20 hover:bg-primary transition-colors duration-200" />
 
                     {/* Right Panel: editor + output */}
                     <ResizablePanel defaultSize={65}>
@@ -104,25 +103,24 @@ export function GameArena() {
                             <ResizablePanel defaultSize={70}>
                                 <div className="h-full p-4 flex flex-col">
                                     <div className="flex justify-between items-center mb-3 px-1">
-                                        <span className="text-xs font-medium text-zinc-500 uppercase">Code Editor</span>
-                                        <Button
-                                            size="sm"
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Code Editor</span>
+                                        <button
                                             onClick={handleSubmit}
                                             disabled={isSubmitting}
-                                            className="h-8 shadow-md"
+                                            className="arcade-btn bg-primary px-4 py-1.5 border-2 border-foreground shadow-retro-sm text-xs font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 hover:scale-105 active:scale-95 transition-transform"
                                         >
                                             {isSubmitting ? (
                                                 <>
-                                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                                     Running…
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Play className="h-4 w-4 mr-2" />
+                                                    <Play className="h-3.5 w-3.5" />
                                                     Run Code
                                                 </>
                                             )}
-                                        </Button>
+                                        </button>
                                     </div>
                                     <div className="flex-1 min-h-0">
                                         <CodeEditor
@@ -134,19 +132,19 @@ export function GameArena() {
                                 </div>
                             </ResizablePanel>
 
-                            <ResizableHandle className="h-1 bg-zinc-800 hover:bg-primary transition-colors duration-200" />
+                            <ResizableHandle className="h-0.5 bg-foreground/20 hover:bg-primary transition-colors duration-200" />
 
                             <ResizablePanel defaultSize={30}>
-                                <div className="h-full p-4 bg-black/60 font-mono text-sm text-zinc-300 overflow-y-auto">
+                                <div className="h-full p-4 font-mono text-sm text-slate-300 overflow-y-auto" style={{ backgroundColor: "hsl(230 40% 8%)" }}>
                                     <div className="flex items-center gap-2 mb-2">
                                         {lastRoundResult?.verdict === "CORRECT" ? (
-                                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                            <CheckCircle2 className="h-4 w-4 text-accent" />
                                         ) : lastRoundResult ? (
-                                            <XCircle className="h-4 w-4 text-rose-500" />
+                                            <XCircle className="h-4 w-4 text-destructive" />
                                         ) : (
-                                            <CheckCircle2 className="h-4 w-4 text-zinc-600" />
+                                            <CheckCircle2 className="h-4 w-4 text-slate-600" />
                                         )}
-                                        <span className="text-xs font-semibold uppercase text-zinc-400">Execution Output</span>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Execution Output</span>
                                     </div>
                                     <pre className="whitespace-pre-wrap">
                                         {outputContent || "Ready. Write your solution and press 'Run Code'."}

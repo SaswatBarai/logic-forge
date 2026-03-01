@@ -9,7 +9,7 @@ const globalForMongoose = globalThis as unknown as {
 async function getAuthConnection(): Promise<mongoose.Connection> {
   if (!process.env.MONGO_URL) {
     throw new Error(
-      "MONGO_URL is required for the auth database. Set it in apps/web/.env (e.g. MONGO_URL=mongodb://localhost:27017/logicforge_auth)"
+      "MONGO_URL is required for the auth database. Set it in apps/web/.env or the repo root .env (e.g. MONGO_URL=mongodb://admin:password@localhost:27017/logicforge_auth?authSource=admin)"
     );
   }
 
@@ -24,7 +24,12 @@ async function getAuthConnection(): Promise<mongoose.Connection> {
       .connect(process.env.MONGO_URL, {
         bufferCommands: false,
       })
-      .then(() => mongoose.connection);
+      .then(() => mongoose.connection)
+      .catch((err) => {
+        globalForMongoose.authConnPromise = undefined;
+        console.error("[mongoose-auth] MongoDB connection failed:", err.message);
+        throw err;
+      });
   }
 
   globalForMongoose.authConn = await globalForMongoose.authConnPromise;

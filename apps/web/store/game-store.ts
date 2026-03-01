@@ -106,7 +106,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+            const reason = event.reason || (event.code === 1005 ? "No status (connection lost or server closed without frame)" : "");
+            console.log("[GameStore] WebSocket closed:", event.code, reason || "(no reason)");
             set({ connected: false, socket: null });
             scheduleReconnect(set, get);
         };

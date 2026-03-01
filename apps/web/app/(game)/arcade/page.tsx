@@ -2,14 +2,17 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
+import { motion } from "framer-motion";
 import { MatchLobby } from "@/components/game/lobby";
 import { GameArena } from "@/components/game/arena";
 import { ResultsScreen } from "@/components/game/results-screen";
+import { Navbar } from "@/components/Navbar";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Zap, Shield, Cpu } from "lucide-react";
 
 const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:3001";
+
+const easeLanding = [0.22, 1, 0.36, 1] as const;
 
 export default function ArcadeModePage() {
     const { data: session } = useSession();
@@ -20,51 +23,56 @@ export default function ArcadeModePage() {
     const [queueError, setQueueError] = useState<string | null>(null);
     const identifiedRef = useRef(false);
 
-    // 🛠️ FIX PART 1: Create a waiting room for the session ID
     const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-    // Send IDENTIFY when WebSocket connects and user session is available
     useEffect(() => {
         if (connected && session?.user?.email && !identifiedRef.current) {
             identify(session.user.email);
             identifiedRef.current = true;
         }
-        // Reset flag if connection drops
         if (!connected) {
             identifiedRef.current = false;
         }
     }, [connected, session?.user?.email, identify]);
 
-    // Auto-join session when MATCH_FOUND arrives via WebSocket (queued player)
     useEffect(() => {
         if (storeSessionId && queueStatus === "QUEUED") {
             setQueueStatus("MATCHED");
+            setActiveSessionId(storeSessionId);
             joinSession(storeSessionId);
         }
     }, [storeSessionId, queueStatus, joinSession]);
 
-    // 🛠️ FIX PART 2: The Watcher Hook.
-    // This hook patiently waits for BOTH the connection to be ready AND a pending session to exist.
     useEffect(() => {
         if (connected && pendingSessionId) {
-            joinSession(pendingSessionId); // Safely execute the join
-            setPendingSessionId(null);     // Clear the pending ID so we don't join twice
+            setActiveSessionId(pendingSessionId);
+            joinSession(pendingSessionId);
+            setPendingSessionId(null);
         }
     }, [connected, pendingSessionId, joinSession]);
+
+    useEffect(() => {
+        if (connected && activeSessionId && !storeSessionId) {
+            joinSession(activeSessionId);
+        }
+    }, [connected, activeSessionId, storeSessionId, joinSession]);
 
     const handleStartQueue = async () => {
         setIsQueuing(true);
         setQueueError(null);
 
+        const userId = session?.user?.email ?? session?.user?.id ?? crypto.randomUUID();
+        identify(userId);
+
         try {
-            // 1. Call REST matchmaker to create / join a session
             const res = await fetch(`${GAME_API_URL}/api/v1/sessions`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     mode: "ARCADE",
                     playerFormat: "DUAL",
-                    userId: session?.user?.email ?? session?.user?.id ?? crypto.randomUUID(),
+                    userId,
                 }),
             });
 
@@ -78,97 +86,235 @@ export default function ArcadeModePage() {
             setQueueStatus(data.status);
 
             if (data.status === "MATCHED" && data.sessionId) {
-                // 🛠️ FIX PART 3: Instead of joining immediately, put the ID in the waiting room.
-                // The Watcher Hook above will handle the actual joining when the socket is ready.
+                setActiveSessionId(data.sessionId);
                 setPendingSessionId(data.sessionId);
             }
-            
-        } catch (err: any) {
-            setQueueError(err.message || "Failed to join queue");
+
+        } catch (err: unknown) {
+            setQueueError(err instanceof Error ? err.message : "Failed to join queue");
             setIsQueuing(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-black select-none overflow-hidden flex flex-col">
-            {/* Immersive backdrop gradient */}
-            <div className="absolute top-0 inset-x-0 h-64 bg-gradient-to-b from-primary/10 to-transparent pointer-events-none" />
+        <div className="relative min-h-screen flex flex-col bg-background selection:bg-primary selection:text-primary-foreground select-none">
+            <Navbar />
 
-            <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6 lg:p-8 relative z-10 flex flex-col">
-
-                {/* ── Pre-queue intro screen ── */}
+            <main className="flex-1 flex flex-col">
                 {!hasStartedQueue && (
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-8 animate-in fade-in duration-1000">
-                        <div className="text-center space-y-4 max-w-2xl">
-                            <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-zinc-100 to-zinc-500">
-                                Dual Engine Arcade
-                            </h1>
-                            <p className="text-lg text-zinc-400">
-                                Compete 1v1 against an opponent in real-time.
-                                Solve algorithm puzzles uniquely scrambled to prevent LLM assistance.
-                                Fastest implementation wins the round.
-                            </p>
-                        </div>
+                    <section className="flex-1 min-h-[85vh] relative overflow-hidden">
+                        {/* Subtle background pattern */}
+                        <div
+                            className="absolute inset-0 opacity-[0.03]"
+                            style={{
+                                backgroundImage: `radial-gradient(circle at 1px 1px, hsl(var(--foreground)) 1px, transparent 0)`,
+                                backgroundSize: "24px 24px",
+                            }}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/50 pointer-events-none" />
 
-                        {queueError && (
-                            <p className="text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2">
-                                {queueError} — check that game-api is running on port 3001.
-                            </p>
-                        )}
-
-                        {/* Connection error with manual retry */}
-                        {!connected && error?.includes("multiple attempts") && (
-                            <div className="flex flex-col items-center gap-3">
-                                <p className="text-rose-400 text-sm bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-2">
-                                    Unable to reach the game server. Ensure services are running.
-                                </p>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={retryConnection}
-                                    className="gap-2"
+                        <div className="relative max-w-7xl mx-auto px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-16 lg:gap-20 items-center min-h-[85vh]">
+                            {/* Left: Copy + CTA */}
+                            <div className="flex flex-col gap-8 z-10 order-2 lg:order-1">
+                                <motion.div
+                                    initial={{ opacity: 0, x: -24 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ duration: 0.5, ease: easeLanding }}
+                                    className="space-y-2"
                                 >
-                                    <RefreshCw className="h-4 w-4" />
-                                    Retry Connection
-                                </Button>
-                            </div>
-                        )}
+                                    <p className="text-sm font-black uppercase tracking-[0.2em] text-primary">
+                                        Live PvP
+                                    </p>
+                                    <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black leading-[0.92] tracking-tighter uppercase text-foreground">
+                                        Dual Engine{" "}
+                                        <motion.span
+                                            className="inline-block text-primary"
+                                            whileHover={{
+                                                color: "hsl(43, 96%, 56%)",
+                                                textShadow: "4px 4px 0px hsl(222, 47%, 11%)",
+                                            }}
+                                            style={{ transition: "color 0.3s, text-shadow 0.3s" }}
+                                        >
+                                            Arcade
+                                        </motion.span>
+                                    </h1>
+                                    <p className="text-muted-foreground text-lg font-medium max-w-md pt-1">
+                                        Find a rival. Solve the puzzle. First correct answer wins.
+                                    </p>
+                                </motion.div>
 
-                        <Button
-                            size="lg"
-                            onClick={handleStartQueue}
-                            disabled={!connected || isQueuing}
-                            className="text-lg px-12 py-6 rounded-full shadow-[0_0_40px_-10px_rgba(var(--primary),0.5)] hover:shadow-[0_0_60px_-10px_rgba(var(--primary),0.8)] transition-all duration-300"
-                        >
-                            {isQueuing ? (
-                                <>
-                                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                    Joining Queue…
-                                </>
-                            ) : connected ? (
-                                "Enter the Arena"
-                            ) : reconnectAttempt > 0 && !error?.includes("multiple attempts") ? (
-                                <>
-                                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                    Reconnecting ({reconnectAttempt}/10)…
-                                </>
-                            ) : (
-                                <>
-                                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                    Connecting to Services…
-                                </>
-                            )}
-                        </Button>
-                    </div>
+                                <motion.div
+                                    className="border-2 border-foreground p-6 bg-card shadow-retro-lg max-w-lg"
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.5, delay: 0.15, ease: easeLanding }}
+                                >
+                                    <p className="text-base font-medium leading-relaxed text-foreground/90">
+                                        Compete 1v1 against a live opponent in real-time. Every puzzle is uniquely
+                                        scrambled to defeat LLM cheating. Fastest correct implementation wins the round.
+                                    </p>
+                                </motion.div>
+
+                                {/* Feature strip — HUD style */}
+                                <motion.div
+                                    className="flex flex-wrap gap-4"
+                                    initial={{ opacity: 0, y: 12 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.5, delay: 0.25, ease: easeLanding }}
+                                >
+                                    {[
+                                        { icon: Zap, label: "Real-Time 1v1", color: "bg-primary border-foreground text-primary-foreground" },
+                                        { icon: Shield, label: "AI-Proof", color: "bg-accent border-foreground text-accent-foreground" },
+                                        { icon: Cpu, label: "Live Execution", color: "bg-card border-2 border-foreground text-foreground" },
+                                    ].map((item, i) => (
+                                        <motion.div
+                                            key={item.label}
+                                            className="flex items-center gap-2.5 px-4 py-2.5 border-2 border-foreground shadow-retro-sm font-bold uppercase tracking-widest text-xs"
+                                            style={{ backgroundColor: "hsl(var(--card))" }}
+                                            initial={{ opacity: 0, y: 8 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: 0.35 + i * 0.06, duration: 0.4 }}
+                                            whileHover={{ scale: 1.02, boxShadow: "3px 3px 0px 0px hsl(var(--foreground) / 0.2)" }}
+                                        >
+                                            <item.icon className="size-4 shrink-0 text-primary" />
+                                            <span>{item.label}</span>
+                                        </motion.div>
+                                    ))}
+                                </motion.div>
+
+                                {/* Errors */}
+                                {queueError && (
+                                    <motion.div
+                                        className="border-2 border-destructive bg-destructive/10 px-5 py-3 shadow-retro-sm max-w-lg"
+                                        initial={{ opacity: 0, scale: 0.98 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                    >
+                                        <p className="text-sm font-bold text-destructive">{queueError} — check that game-api is running on port 3001.</p>
+                                    </motion.div>
+                                )}
+                                {!connected && error?.includes("multiple attempts") && (
+                                    <motion.div
+                                        className="flex flex-col gap-3 max-w-lg"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                    >
+                                        <div className="border-2 border-destructive bg-destructive/10 px-5 py-3 shadow-retro-sm">
+                                            <p className="text-sm font-bold text-destructive">Unable to reach the game server. Ensure services are running.</p>
+                                        </div>
+                                        <motion.button
+                                            className="arcade-btn w-fit bg-card px-5 py-2.5 border-2 border-foreground shadow-retro text-sm font-black uppercase tracking-widest flex items-center gap-2"
+                                            whileHover={{ scale: 1.02, boxShadow: "4px 4px 0px 0px hsl(var(--navy))" }}
+                                            whileTap={{ scale: 0.98, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
+                                            onClick={retryConnection}
+                                        >
+                                            <RefreshCw className="size-4" />
+                                            Retry Connection
+                                        </motion.button>
+                                    </motion.div>
+                                )}
+
+                                {/* Main CTA */}
+                                <motion.div
+                                    className="flex flex-wrap items-center gap-4 pt-2"
+                                    initial={{ opacity: 0, y: 16 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.5, delay: 0.45, ease: easeLanding }}
+                                >
+                                    <motion.button
+                                        className="arcade-btn bg-primary px-10 py-5 border-2 border-foreground shadow-retro text-xl font-black uppercase tracking-widest flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
+                                        whileHover={connected && !isQueuing ? {
+                                            scale: 1.04,
+                                            boxShadow: "6px 6px 0px 0px hsl(var(--navy))",
+                                        } : {}}
+                                        whileTap={connected && !isQueuing ? {
+                                            scale: 0.97,
+                                            x: 2,
+                                            y: 2,
+                                            boxShadow: "0px 0px 0px 0px hsl(var(--navy))",
+                                        } : {}}
+                                        onClick={handleStartQueue}
+                                        disabled={!connected || isQueuing}
+                                    >
+                                        {connected && !isQueuing && (
+                                            <span className="absolute inset-0 bg-primary/20 animate-pulse pointer-events-none rounded-sm" aria-hidden />
+                                        )}
+                                        {isQueuing ? (
+                                            <>
+                                                <Loader2 className="size-6 animate-spin shrink-0" />
+                                                <span>Joining Queue…</span>
+                                            </>
+                                        ) : connected ? (
+                                            <>
+                                                <span className="text-2xl shrink-0">▶</span>
+                                                <span>Enter Arena</span>
+                                            </>
+                                        ) : reconnectAttempt > 0 && !error?.includes("multiple attempts") ? (
+                                            <>
+                                                <Loader2 className="size-6 animate-spin shrink-0" />
+                                                <span>Reconnecting…</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Loader2 className="size-6 animate-spin shrink-0" />
+                                                <span>Connecting…</span>
+                                            </>
+                                        )}
+                                    </motion.button>
+                                </motion.div>
+                            </div>
+
+                            {/* Right: Arcade "screen" visual */}
+                            <motion.div
+                                className="relative order-1 lg:order-2 flex justify-center lg:justify-end"
+                                initial={{ opacity: 0, x: 24 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ duration: 0.6, delay: 0.2, ease: easeLanding }}
+                            >
+                                <div className="w-full max-w-md border-4 border-foreground bg-foreground shadow-retro-lg p-2 relative">
+                                    {/* CRT-style frame */}
+                                    <div
+                                        className="aspect-[4/3] flex flex-col items-center justify-center gap-6 p-8 text-background"
+                                        style={{ backgroundColor: "hsl(var(--editor-bg))" }}
+                                    >
+                                        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-primary">
+                                            Versus
+                                        </div>
+                                        <div className="flex items-center gap-8">
+                                            <div className="w-20 h-20 rounded-full border-2 border-primary bg-primary/20 flex items-center justify-center text-2xl font-black">
+                                                P1
+                                            </div>
+                                            <span className="text-3xl font-black text-primary">VS</span>
+                                            <div className="w-20 h-20 rounded-full border-2 border-destructive bg-destructive/20 flex items-center justify-center text-2xl font-black">
+                                                P2
+                                            </div>
+                                        </div>
+                                        <p className="text-xs font-mono text-center text-white/70 max-w-[200px]">
+                                            Matchmaking finds you a live opponent. First to solve wins.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            {[1, 2, 3].map((i) => (
+                                                <motion.div
+                                                    key={i}
+                                                    className="w-2 h-2 rounded-full bg-primary"
+                                                    animate={{ opacity: [0.4, 1, 0.4] }}
+                                                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-2 border-r-2 border-primary/50" aria-hidden />
+                                </div>
+                            </motion.div>
+                        </div>
+                    </section>
                 )}
 
-                {/* ── In-queue / in-session views ── */}
                 {hasStartedQueue && (
-                    <>
+                    <div className="flex-1 flex flex-col">
                         {(status === "LOBBY" || status === "QUEUE") && <MatchLobby />}
                         {status === "ACTIVE" && <GameArena />}
                         {status === "COMPLETED" && <ResultsScreen />}
-                    </>
+                    </div>
                 )}
             </main>
         </div>

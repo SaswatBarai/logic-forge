@@ -1,70 +1,103 @@
 "use client";
 
-import { useState } from "react"; // 1. Import useState
+import { useState } from "react";
+import { motion } from "framer-motion";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { Loader2, Swords, CheckCircle2 } from "lucide-react"; // 2. Add CheckCircle2 for better UI
-import { Button } from "@/components/ui/button";
+import { Loader2, Swords, CheckCircle2 } from "lucide-react";
 
 export function MatchLobby() {
-    // 3. Extract the readyUp function we mapped in the hook previously
     const { status, sessionId, readyUp } = useGameEngine();
-    
-    // 4. Track if the current player has clicked ready
     const [isReady, setIsReady] = useState(false);
 
-    // If we have an active match that is about to begin
     if (status === "ACTIVE") {
         return null;
     }
 
-    // 5. Create a handler to fire the WS event and update UI
     const handleReadyClick = () => {
         setIsReady(true);
-        readyUp(); 
+        readyUp();
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-[500px] w-full text-center space-y-6">
-            <div className="relative">
-                <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full" />
-                <Swords className="h-24 w-24 text-primary relative z-10 animate-pulse" />
-            </div>
-
-            <div className="space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight text-white">
-                    {sessionId ? "Found Opponent" : "Looking for Match"}
-                </h2>
-                <p className="text-zinc-400 max-w-sm mx-auto">
-                    {sessionId
-                        ? "Preparing arena context. The round is about to begin in a moment..."
-                        : "Queueing you up against players of similar difficulty rating in the server network."}
-                </p>
-            </div>
-
-            {!sessionId && (
-                <div className="flex items-center gap-2 text-zinc-300 bg-zinc-900/50 px-4 py-2 rounded-full border border-zinc-800">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm font-medium tracking-wide">MATCHMAKER QUEUED</span>
-                </div>
-            )}
-
-            {sessionId && (
-                <Button 
-                    variant={isReady ? "outline" : "secondary"} 
-                    className={`animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all ${isReady ? "border-green-500/50 text-green-400" : ""}`}
-                    onClick={handleReadyClick} // 6. Attach the wires!
-                    disabled={isReady} // 7. Prevent spamming the ready button
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 lg:py-24 max-w-7xl mx-auto w-full">
+            <motion.div
+                className="flex flex-col items-center gap-10"
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            >
+                {/* Animated icon */}
+                <motion.div
+                    className="bg-primary/10 size-28 border-2 border-foreground flex items-center justify-center shadow-retro-lg"
+                    animate={{ rotate: [0, 5, -5, 0] }}
+                    transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
                 >
-                    {isReady ? (
-                        <>
-                            <CheckCircle2 className="w-4 h-4 mr-2" />
-                            Waiting for opponent...
-                        </>
-                    ) : (
-                        "Ready Up"
-                    )}
-                </Button>
-            )}
+                    <Swords className="size-14 text-primary" />
+                </motion.div>
+
+                {/* Title */}
+                <div className="text-center space-y-3">
+                    <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter">
+                        {sessionId ? "Opponent Found" : "Searching Arena"}
+                    </h2>
+                    <div className="border-2 border-foreground p-4 bg-card shadow-retro max-w-md mx-auto">
+                        <p className="text-sm font-medium leading-relaxed">
+                            {sessionId
+                                ? "Preparing arena context. The duel is about to begin — get ready."
+                                : "Scanning the matchmaker queue for opponents of similar skill level…"}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Status indicator */}
+                {!sessionId && (
+                    <motion.div
+                        className="flex items-center gap-3 px-5 py-3 border-2 border-foreground bg-card shadow-retro-sm"
+                        animate={{ opacity: [1, 0.6, 1] }}
+                        transition={{ repeat: Infinity, duration: 2 }}
+                    >
+                        <Loader2 className="size-4 animate-spin text-primary" />
+                        <span className="text-xs font-black uppercase tracking-widest">
+                            Matchmaker Queued
+                        </span>
+                    </motion.div>
+                )}
+
+                {/* Ready button */}
+                {sessionId && (
+                    <motion.button
+                        className={`arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 ${
+                            isReady
+                                ? "bg-accent text-accent-foreground cursor-default"
+                                : "bg-primary"
+                        }`}
+                        whileHover={!isReady ? {
+                            scale: 1.05,
+                            boxShadow: "6px 6px 0px 0px hsl(var(--navy))",
+                        } : {}}
+                        whileTap={!isReady ? {
+                            scale: 0.95,
+                            x: 2,
+                            y: 2,
+                            boxShadow: "0px 0px 0px 0px hsl(var(--navy))",
+                        } : {}}
+                        onClick={handleReadyClick}
+                        disabled={isReady}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4 }}
+                    >
+                        {isReady ? (
+                            <>
+                                <CheckCircle2 className="size-5" />
+                                Waiting for Opponent…
+                            </>
+                        ) : (
+                            "Ready Up"
+                        )}
+                    </motion.button>
+                )}
+            </motion.div>
         </div>
     );
 }
