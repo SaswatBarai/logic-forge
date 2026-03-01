@@ -118,8 +118,10 @@ async function handleJoinSession(socket: GameSocket, sessionId: string, token: s
         socket.send(JSON.stringify(response));
         logger.debug({ sessionId, userId }, "Client joined session");
 
-        // In SINGLE player mode, auto-start round 1 immediately after join
-        if (sessionState.mode === "ARCADE" && sessionRooms.get(sessionId)?.size === 1) {
+        // 🛠️ BUG FIX: Auto-start ONLY for single-player games.
+        // We now check sessionState.playerFormat === "SINGLE" instead of the game mode.
+        // This ensures the server doesn't accidentally start the game while waiting for player 2.
+        if (sessionState.playerFormat === "SINGLE" && sessionRooms.get(sessionId)?.size === 1) {
             // Give client a moment to finish setup, then start
             setTimeout(() => {
                 startRound(sessionId, 1).catch((err) =>
@@ -128,15 +130,8 @@ async function handleJoinSession(socket: GameSocket, sessionId: string, token: s
             }, 500);
         }
 
-        // In DUAL mode: start when both players are in the room
-        if (sessionRooms.get(sessionId)?.size === 2) {
-            logger.info({ sessionId }, "Both players joined. Starting round 1.");
-            setTimeout(() => {
-                startRound(sessionId, 1).catch((err) =>
-                    logger.error({ err, sessionId }, "Failed to start round for DUAL session")
-                );
-            }, 500);
-        }
+        // 🛑 We have completely removed the block that auto-started DUAL games here.
+        // DUAL games now strictly rely on the handleReady function below this one.
 
     } catch (err: any) {
         logger.warn({ err, sessionId }, "Failed to join session");
@@ -150,10 +145,18 @@ async function handleReady(socket: GameSocket, sessionId: string) {
         readyPlayers.set(sessionId, new Set());
     }
     readyPlayers.get(sessionId)!.add(userId);
-    logger.debug({ sessionId, userId }, "Player sent READY");
 
     const room = sessionRooms.get(sessionId);
     const ready = readyPlayers.get(sessionId);
+
+    // 🛠️ DEBUG: Log exactly what the server sees
+    logger.info({
+        sessionId,
+        userId,
+        action: "READY_CLICKED",
+        playersInRoom: room?.size,
+        playersReady: ready?.size
+    }, "Evaluating ready state...");
 
     // Dual mode: start when both players ready
     if (room && ready && room.size >= 2 && ready.size >= 2) {

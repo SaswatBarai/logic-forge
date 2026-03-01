@@ -1,16 +1,27 @@
 "use client";
 
+import { useState } from "react"; // 1. Import useState
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { Loader2, Swords } from "lucide-react";
+import { Loader2, Swords, CheckCircle2 } from "lucide-react"; // 2. Add CheckCircle2 for better UI
 import { Button } from "@/components/ui/button";
 
 export function MatchLobby() {
-    const { status, sessionId } = useGameEngine();
+    // 3. Extract the readyUp function we mapped in the hook previously
+    const { status, sessionId, readyUp } = useGameEngine();
+    
+    // 4. Track if the current player has clicked ready
+    const [isReady, setIsReady] = useState(false);
 
     // If we have an active match that is about to begin
     if (status === "ACTIVE") {
         return null;
     }
+
+    // 5. Create a handler to fire the WS event and update UI
+    const handleReadyClick = () => {
+        setIsReady(true);
+        readyUp(); 
+    };
 
     return (
         <div className="flex flex-col items-center justify-center min-h-[500px] w-full text-center space-y-6">
@@ -38,8 +49,20 @@ export function MatchLobby() {
             )}
 
             {sessionId && (
-                <Button variant="secondary" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    Ready Up
+                <Button 
+                    variant={isReady ? "outline" : "secondary"} 
+                    className={`animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all ${isReady ? "border-green-500/50 text-green-400" : ""}`}
+                    onClick={handleReadyClick} // 6. Attach the wires!
+                    disabled={isReady} // 7. Prevent spamming the ready button
+                >
+                    {isReady ? (
+                        <>
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            Waiting for opponent...
+                        </>
+                    ) : (
+                        "Ready Up"
+                    )}
                 </Button>
             )}
         </div>

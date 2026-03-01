@@ -38,6 +38,7 @@ export async function joinSession(sessionId: string, userId: string) {
         const initialState = {
             id: doc.id,
             mode: doc.mode,
+            playerFormat: doc.playerFormat, // 🛠️ FIX: Add this line!
             status: doc.status,
             currentRound: doc.currentRound,
             maxRounds: doc.maxRounds,

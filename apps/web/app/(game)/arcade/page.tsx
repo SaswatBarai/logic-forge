@@ -20,6 +20,9 @@ export default function ArcadeModePage() {
     const [queueError, setQueueError] = useState<string | null>(null);
     const identifiedRef = useRef(false);
 
+    // 🛠️ FIX PART 1: Create a waiting room for the session ID
+    const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+
     // Send IDENTIFY when WebSocket connects and user session is available
     useEffect(() => {
         if (connected && session?.user?.email && !identifiedRef.current) {
@@ -39,6 +42,15 @@ export default function ArcadeModePage() {
             joinSession(storeSessionId);
         }
     }, [storeSessionId, queueStatus, joinSession]);
+
+    // 🛠️ FIX PART 2: The Watcher Hook.
+    // This hook patiently waits for BOTH the connection to be ready AND a pending session to exist.
+    useEffect(() => {
+        if (connected && pendingSessionId) {
+            joinSession(pendingSessionId); // Safely execute the join
+            setPendingSessionId(null);     // Clear the pending ID so we don't join twice
+        }
+    }, [connected, pendingSessionId, joinSession]);
 
     const handleStartQueue = async () => {
         setIsQueuing(true);
@@ -66,11 +78,11 @@ export default function ArcadeModePage() {
             setQueueStatus(data.status);
 
             if (data.status === "MATCHED" && data.sessionId) {
-                // Immediately join via WS if already matched
-                joinSession(data.sessionId);
+                // 🛠️ FIX PART 3: Instead of joining immediately, put the ID in the waiting room.
+                // The Watcher Hook above will handle the actual joining when the socket is ready.
+                setPendingSessionId(data.sessionId);
             }
-            // If QUEUED, the WS server sends MATCH_FOUND which triggers joinSession
-            // through the game-store's MATCH_FOUND handler (sessionId is set)
+            
         } catch (err: any) {
             setQueueError(err.message || "Failed to join queue");
             setIsQueuing(false);
