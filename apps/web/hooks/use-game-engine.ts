@@ -41,7 +41,7 @@ export function useGameEngine() {
 
     const {
         setConnected, setSocketStatus, setMatchStatus, setQueueError,
-        applySessionJoined, applyPlayerConnected,
+        applyMatched, applySessionJoined, applyPlayerConnected,
         applyRoundStart, applyRoundResult, applyTimerSync,
         applySessionEnd, applySessionAborted,
     } = useGameStore();
@@ -91,8 +91,13 @@ export function useGameEngine() {
         socket.on("MATCHED", (p: { status: string; sessionId: string }) => {
             console.info("[WS] MATCHED via socket", p);
             const userId = userIdRef.current ?? crypto.randomUUID();
-            setMatchStatus("MATCHED");
+            applyMatched(p.sessionId);
             joinSession(p.sessionId, userId);
+        });
+
+        socket.on("SESSION_ERROR", (p: { message: string }) => {
+            console.error("[WS] SESSION_ERROR:", p.message);
+            setQueueError(p.message ?? "Failed to join session");
         });
 
         socket.on("SESSION_JOINED",   (p: SessionJoinedPayload)       => applySessionJoined(p));
@@ -110,6 +115,7 @@ export function useGameEngine() {
             socket.off("connect_error");
             socket.off("IDENTIFIED");
             socket.off("MATCHED");
+            socket.off("SESSION_ERROR");
             socket.off("SESSION_JOINED");
             socket.off("PLAYER_CONNECTED");
             socket.off("ROUND_START");
@@ -184,7 +190,7 @@ export function useGameEngine() {
             console.info("[enterQueue] response:", data);
 
             if (data.status === "MATCHED") {
-                setMatchStatus("MATCHED");
+                applyMatched(data.sessionId);
                 joinSession(data.sessionId, userId);
             } else {
                 setMatchStatus("QUEUED");
@@ -193,7 +199,7 @@ export function useGameEngine() {
             console.error("[enterQueue] failed:", err);
             setQueueError(err.message ?? "Failed to enter queue");
         }
-    }, [setMatchStatus, setQueueError, joinSession]);
+    }, [applyMatched, setQueueError, joinSession]);
 
     const state = useGameStore();
 

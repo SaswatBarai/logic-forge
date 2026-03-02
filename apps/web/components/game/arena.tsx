@@ -28,7 +28,17 @@ export function GameArena() {
 
     const roundHistory = useGameStore((s) => s.roundHistory);
 
-    if (!challenge) return null;
+    if (!challenge) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6 min-h-[60vh]">
+                <Loader2 className="size-12 animate-spin text-primary" />
+                <p className="text-lg font-bold uppercase tracking-widest">Loading round…</p>
+                <p className="text-sm text-muted-foreground max-w-md text-center">
+                    Preparing your challenge. This should only take a moment.
+                </p>
+            </div>
+        );
+    }
 
     const myUserId  = session?.user?.email ?? session?.user?.id ?? "";
     const myPlayer  = players.find((p) => p.userId === myUserId);

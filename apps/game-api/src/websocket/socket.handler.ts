@@ -20,7 +20,6 @@ export function registerSocketHandlers(
                 socket.data.userId = userId;
                 logger.info({ userId, socketId: socket.id }, "Identified");
 
-                // Re-deliver pending MATCHED after reconnect
                 const pendingSessionId = await sessionService.getPendingMatch(userId);
                 if (pendingSessionId) {
                     const session = await sessionService.getSession(pendingSessionId);
@@ -29,7 +28,6 @@ export function registerSocketHandlers(
                         logger.info({ userId, pendingSessionId }, "Re-delivered MATCHED after reconnect");
                     }
                 }
-
                 socket.emit("IDENTIFIED");
             } catch (err) {
                 logger.error({ err }, "Error in IDENTIFY handler");
@@ -37,13 +35,13 @@ export function registerSocketHandlers(
         });
 
         // ─── JOIN_SESSION ────────────────────────────────────────────────
+        // ✅ Never starts a round here — PLAYER_READY is the only gate
         socket.on("JOIN_SESSION", async ({
             sessionId,
             userId,
         }: { sessionId: string; userId: string }) => {
             try {
                 const session = await sessionService.getSession(sessionId);
-
                 if (!session) {
                     socket.emit("SESSION_ERROR", {
                         message: "Session not found or expired. Please re-queue.",
@@ -56,10 +54,10 @@ export function registerSocketHandlers(
                 socket.data.sessionId = sessionId;
                 socket.data.userId    = userId;
 
-                const joinedCount = await sessionService.markPlayerJoined(sessionId, userId);
-                const { players }  = await sessionService.serialize(session);
+                await sessionService.markPlayerJoined(sessionId, userId);
+                const { players } = await sessionService.serialize(session);
 
-                // Ack this player immediately
+                // Ack this player — sets client to LOBBY state
                 socket.emit("SESSION_JOINED", {
                     sessionId,
                     status:  session.status,
@@ -68,27 +66,16 @@ export function registerSocketHandlers(
                 });
 
                 await sessionService.clearPendingMatch(userId);
-
-                logger.info({ userId, sessionId, joinedCount, playerFormat: session.config.playerFormat }, "Joined session");
-
-                // ✅ SINGLE: start immediately when the one player joins
-                // ✅ DUAL:   DO NOT start here — wait for both PLAYER_READY events
-                if (
-                    session.config.playerFormat === "SINGLE" &&
-                    joinedCount >= session.players.length
-                ) {
-                    logger.info({ sessionId }, "Single player joined — starting round 1");
-                    await roundService.startRound(io, sessionId, 1);
-                }
+                logger.info({ userId, sessionId, playerFormat: session.config.playerFormat }, "Joined session — waiting for PLAYER_READY");
             } catch (err) {
                 logger.error({ err, userId, sessionId }, "Error in JOIN_SESSION handler");
                 socket.emit("SESSION_ERROR", { message: "Failed to join session." });
             }
         });
 
-        // ─── PLAYER_READY (Dual Mode lobby gate) ────────────────────────
-        // Only used by DUAL sessions. Both players must emit this before
-        // round 1 starts.
+        // ─── PLAYER_READY ────────────────────────────────────────────────
+        // ✅ Single player: fires automatically from client after 1.5s lobby display
+        // ✅ Dual player:   fires when both players click "Ready Up"
         socket.on("PLAYER_READY", async ({
             sessionId,
             userId,
@@ -97,20 +84,19 @@ export function registerSocketHandlers(
                 const session = await sessionService.getSession(sessionId);
                 if (!session) return;
 
-                // Guard: ignore PLAYER_READY for SINGLE sessions
-                if (session.config.playerFormat === "SINGLE") {
-                    logger.warn({ userId, sessionId }, "PLAYER_READY received for SINGLE session — ignored");
-                    return;
-                }
-
                 const readyCount = await sessionService.markPlayerReady(sessionId, userId);
 
-                // Broadcast ready state so both UIs can update
-                io.to(sessionId).emit("PLAYER_READY_ACK", { userId, readyCount });
+                io.to(sessionId).emit("PLAYER_READY_ACK", {
+                    userId,
+                    readyCount,
+                    total: session.players.length,
+                });
 
-                logger.info({ userId, sessionId, readyCount, total: session.players.length }, "Player ready");
+                logger.info(
+                    { userId, sessionId, readyCount, total: session.players.length, playerFormat: session.config.playerFormat },
+                    "Player ready"
+                );
 
-                // ✅ Start only when ALL players are ready
                 if (readyCount >= session.players.length) {
                     logger.info({ sessionId }, "All players ready — starting round 1");
                     await roundService.startRound(io, sessionId, 1);
@@ -143,7 +129,6 @@ export function registerSocketHandlers(
         socket.on("disconnect", async (reason: string) => {
             const { userId, sessionId } = socket.data;
             logger.info({ userId, sessionId, reason }, "Client disconnected");
-
             if (userId) {
                 matchmakerService.cancelQueue(userId);
                 await sessionService.unregisterSocket(userId);

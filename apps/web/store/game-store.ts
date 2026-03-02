@@ -76,6 +76,7 @@ interface GameState {
     setConnected:         (v: boolean) => void;
     setSocketStatus:      (v: GameState["socketStatus"]) => void;
     setMatchStatus:       (v: GameState["matchStatus"]) => void;
+    applyMatched:         (sessionId: string) => void;
     setQueueError:        (msg: string | null) => void;
     applySessionJoined:   (payload: SessionJoinedPayload) => void;
     applyPlayerConnected: (userId: string) => void;
@@ -162,6 +163,7 @@ export const useGameStore = create<GameState>()(
         setConnected:    (v)   => set((s) => { s.connected    = v; }),
         setSocketStatus: (v)   => set((s) => { s.socketStatus = v; }),
         setMatchStatus:  (v)   => set((s) => { s.matchStatus  = v; }),
+        applyMatched:    (sid) => set((s) => { s.matchStatus  = "MATCHED"; s.sessionId = sid; }),
         setQueueError:   (msg) => set((s) => { s.queueError   = msg; }),
 
         applySessionJoined: (payload) => set((s) => {

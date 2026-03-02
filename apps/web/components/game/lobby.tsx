@@ -6,10 +6,10 @@ import { useGameEngine } from "@/hooks/use-game-engine";
 import { Loader2, Swords, CheckCircle2 } from "lucide-react";
 
 export function MatchLobby() {
-    const { status, sessionId, readyUp } = useGameEngine();
+    const { sessionStatus, sessionId, readyUp } = useGameEngine();
     const [isReady, setIsReady] = useState(false);
 
-    if (status === "ACTIVE") {
+    if (sessionStatus === "ACTIVE") {
         return null;
     }
 

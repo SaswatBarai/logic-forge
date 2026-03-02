@@ -80,7 +80,8 @@ export default function ArcadeModePage() {
 
     const {
         connected, socketStatus, matchStatus,
-        sessionStatus, queueError, enterQueue, reset,
+        sessionStatus, sessionId, queueError,
+        enterQueue, joinSession, reset,
     } = useGameEngine();
 
     // ── Wizard state ──────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ export default function ArcadeModePage() {
     const [category,     setCategory]     = useState<TimerCategory | null>(null);
     const [isQueuing,    setIsQueuing]    = useState(false);
 
-    const isInSession = matchStatus === "MATCHED" || sessionStatus !== "IDLE";
+    const isInSession = matchStatus === "MATCHED" || matchStatus === "QUEUED" || sessionStatus !== "IDLE";
     const hasError    = socketStatus === "ERROR";
     const copy        = STEP_COPY[step] ?? STEP_COPY[0];
 
@@ -111,9 +112,31 @@ export default function ArcadeModePage() {
         return (
             <div className="relative min-h-screen flex flex-col bg-background select-none">
                 <div className="flex-1 flex flex-col">
-                    {sessionStatus === "LOBBY"     && <MatchLobby />}
+                    {(sessionStatus === "LOBBY" || matchStatus === "QUEUED") && <MatchLobby />}
                     {sessionStatus === "ACTIVE"    && <GameArena />}
                     {sessionStatus === "COMPLETED" && <ResultsScreen />}
+                    {/* MATCHED but still connecting (never got SESSION_JOINED) */}
+                    {matchStatus === "MATCHED" && sessionStatus === "IDLE" && (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
+                            <Loader2 className="size-12 animate-spin text-primary" />
+                            <p className="text-lg font-bold uppercase tracking-widest">Connecting to arena…</p>
+                            <p className="text-sm text-muted-foreground max-w-md text-center">
+                                Establishing your session. If this takes too long, try again.
+                            </p>
+                            {sessionId && (
+                                <button
+                                    type="button"
+                                    onClick={() => joinSession(sessionId)}
+                                    className="arcade-btn px-8 py-4 border-2 border-foreground bg-primary shadow-retro font-black uppercase tracking-widest flex items-center gap-2"
+                                >
+                                    <RefreshCw className="size-4" /> Retry connection
+                                </button>
+                            )}
+                            {queueError && (
+                                <p className="text-sm text-destructive font-medium max-w-md text-center">{queueError}</p>
+                            )}
+                        </div>
+                    )}
                     {sessionStatus === "ABORTED"   && (
                         <div className="flex-1 flex flex-col items-center justify-center gap-6">
                             <p className="text-destructive font-black text-xl uppercase">Session Aborted</p>
