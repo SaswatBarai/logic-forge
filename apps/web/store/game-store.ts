@@ -42,12 +42,14 @@ export interface RoundResult {
     challengeId: string;
     passed: boolean;
     points: number;
+    verdict: string;
+    executionTimeMs: number;
 }
 
 // ── Per-round history entry for results screen ────────────────────────────
 export interface RoundHistoryEntry {
     roundNumber: number;
-    verdict: "CORRECT" | "INCORRECT";
+    verdict: "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
     score: number;
     executionTimeMs: number;
 }
@@ -113,6 +115,8 @@ export interface RoundResultPayload {
     challengeId: string;
     passed: boolean;
     points: number;
+    verdict: string;   // CORRECT | PARTIAL | INCORRECT | COMPILE_ERROR | RUNTIME_ERROR | TIMEOUT
+    executionTimeMs: number;
     livesRemaining?: number;
     roundState: {
         currentRound: number;
@@ -220,6 +224,8 @@ export const useGameStore = create<GameState>()(
                 challengeId: payload.challengeId,
                 passed: payload.passed,
                 points: payload.points,
+                verdict: payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT"),
+                executionTimeMs: payload.executionTimeMs ?? 0,
             };
             s.showResultOverlay = true;
             s.timeRemaining = null;
@@ -229,11 +235,12 @@ export const useGameStore = create<GameState>()(
             }
 
             // ── Accumulate round history for results screen ───────────────
+            const verdict = (payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT")) as RoundHistoryEntry["verdict"];
             s.roundHistory.push({
                 roundNumber: payload.roundState.currentRound - 1 || s.currentRound,
-                verdict: payload.passed ? "CORRECT" : "INCORRECT",
+                verdict,
                 score: payload.points,
-                executionTimeMs: 0,  // filled when code-runner is integrated
+                executionTimeMs: payload.executionTimeMs ?? 0,
             });
 
             if (payload.roundState.isTerminated) {

@@ -15,6 +15,9 @@ import type { SessionService } from "./session.service";
 const QUESTION_ENGINE_URL =
     process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
 
+const CODE_RUNNER_URL =
+    process.env.CODE_RUNNER_URL || "http://localhost:3004";
+
 // ── Category map: types short names → question-engine/DB enum ────────────
 const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
     "MISSING_LINK": "THE_MISSING_LINK",
@@ -71,6 +74,8 @@ export interface EvaluateAnswerResult {
     challengeId: string;
     passed: boolean;
     points: number;
+    verdict: string;  // CORRECT | PARTIAL | INCORRECT | COMPILE_ERROR | RUNTIME_ERROR | TIMEOUT
+    executionTimeMs: number;
     livesRemaining?: number;
     roundState: {
         currentRound: number;
@@ -197,21 +202,79 @@ export class RoundService {
         return state;
     }
 
-    // ── Evaluate a submission ─────────────────────────────────────────────
+    // ── Evaluate a submission via code-runner ─────────────────────────────
     async evaluateAnswer(args: {
         sessionId: string;
         userId: string;
         challengeId: string;
-        answer: string;
+        answer: string;   // the user's submitted code
     }): Promise<EvaluateAnswerResult> {
         const { sessionId, userId, challengeId, answer } = args;
         const session = await this.sessionService.getSession(sessionId);
         if (!session) throw new Error(`Session not found: ${sessionId}`);
         const config = session.config;
 
-        // TODO: replace with real validation via question-engine
-        const passed = (answer?.trim().length ?? 0) > 0;
-        const points = passed ? 100 : 0;
+        // ── 1. Fetch testCases + language from question-engine ─────────────
+        let verdict = "INCORRECT";
+        let executionTimeMs = 0;
+
+        // Default values for empty / auto-submit (timer expiry)
+        const isAutoSubmit = !answer || answer.trim().length === 0;
+
+        if (!isAutoSubmit) {
+            try {
+                const challengeRes = await fetch(`${QUESTION_ENGINE_URL}/api/v1/challenges/${challengeId}`);
+                if (!challengeRes.ok) {
+                    throw new Error(`QE returned ${challengeRes.status} for challenge ${challengeId}`);
+                }
+                const challengeBody = await challengeRes.json() as {
+                    success: boolean;
+                    data: {
+                        language: string;
+                        testCases: Array<{ input: string; expectedOutput: string }>;
+                        timeLimitMs?: number;
+                    };
+                };
+                const challenge = challengeBody.data;
+
+                // ── 2. POST to code-runner ─────────────────────────────────
+                const runRes = await fetch(`${CODE_RUNNER_URL}/api/v1/execute`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        language: challenge.language,
+                        code: answer,
+                        testCases: challenge.testCases ?? [],
+                        timeLimitMs: challenge.timeLimitMs ?? 5000,
+                        memoryLimitKb: 262144,
+                    }),
+                });
+
+                if (runRes.ok) {
+                    const runBody = await runRes.json() as {
+                        verdict: string;
+                        totalExecutionTimeMs: number;
+                    };
+                    verdict = runBody.verdict;    // CORRECT | PARTIAL | INCORRECT | COMPILE_ERROR | RUNTIME_ERROR | TIMEOUT
+                    executionTimeMs = runBody.totalExecutionTimeMs ?? 0;
+                } else {
+                    logger.error({ sessionId, challengeId, status: runRes.status }, "Code-runner returned error");
+                    verdict = "RUNTIME_ERROR";
+                }
+            } catch (err) {
+                logger.error({ err, sessionId, challengeId }, "Failed to evaluate via code-runner — falling back to INCORRECT");
+                verdict = "RUNTIME_ERROR";
+            }
+        }
+        // Auto-submit (timer expiry) → already INCORRECT / 0 pts
+
+        // ── 3. Map verdict → pass/points ──────────────────────────────────
+        const passed = verdict === "CORRECT";
+        const points =
+            verdict === "CORRECT" ? 100 :
+                verdict === "PARTIAL" ? 50 : 0;
+
+        logger.info({ sessionId, userId, challengeId, verdict, points, executionTimeMs }, "Answer evaluated");
 
         const state = this.recordResult(sessionId, config, passed);
         await this.sessionService.recordRoundScore(sessionId, userId, points);
@@ -229,6 +292,8 @@ export class RoundService {
             challengeId,
             passed,
             points,
+            verdict,
+            executionTimeMs,
             livesRemaining: config.livesEnabled ? player?.livesRemaining : undefined,
             roundState: {
                 currentRound: state.currentRound,
