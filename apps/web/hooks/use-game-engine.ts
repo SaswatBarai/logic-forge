@@ -41,20 +41,30 @@ export function useGameEngine() {
 
     const {
         setConnected, setSocketStatus, setMatchStatus, setQueueError,
-        applyMatched, applySessionJoined, applyPlayerConnected,
+        applyMatched, setQueuedUserId, applySessionJoined, applyPlayerConnected,
         applyRoundStart, applyRoundResult, applyTimerSync,
         applySessionEnd, applySessionAborted,
     } = useGameStore();
 
     const joinSession = useCallback((sessionId: string, userIdOverride?: string) => {
-        const userId = userIdOverride ?? userIdRef.current;
+        const store = useGameStore.getState();
+        const userId = userIdOverride ?? userIdRef.current ?? store.pendingUserId;
         if (!userId) {
-            console.error("[joinSession] No userId — JOIN_SESSION not emitted");
+            console.error("[joinSession] No userId — JOIN_SESSION not emitted (login or refresh may be required)");
             return;
         }
         console.info("[WS] Emitting JOIN_SESSION", { sessionId, userId });
-        getSocket().emit("JOIN_SESSION", { sessionId, userId });
-    }, []);
+        const socket = getSocket();
+        socket.emit("JOIN_SESSION", { sessionId, userId }, (ack?: { ok: boolean; payload?: object; error?: string }) => {
+            if (ack?.ok && ack.payload) {
+                console.info("[WS] JOIN_SESSION ack success — applying SESSION_JOINED");
+                applySessionJoined(ack.payload as Parameters<typeof applySessionJoined>[0]);
+            } else if (ack && !ack.ok) {
+                console.error("[WS] JOIN_SESSION ack error:", ack.error);
+                setQueueError(ack.error ?? "Failed to join session");
+            }
+        });
+    }, [applySessionJoined, setQueueError]);
 
     useEffect(() => {
         const socket = getSocket();
@@ -90,8 +100,10 @@ export function useGameEngine() {
 
         socket.on("MATCHED", (p: { status: string; sessionId: string }) => {
             console.info("[WS] MATCHED via socket", p);
-            const userId = userIdRef.current ?? crypto.randomUUID();
-            applyMatched(p.sessionId);
+            // Use queued userId (from when we got QUEUED) — must match session.players
+            const store = useGameStore.getState();
+            const userId = store.pendingUserId ?? userIdRef.current ?? crypto.randomUUID();
+            applyMatched(p.sessionId, userId);
             joinSession(p.sessionId, userId);
         });
 
@@ -175,10 +187,11 @@ export function useGameEngine() {
         }
 
         try {
+            const socketId = socket.connected ? socket.id : undefined;
             const res = await fetch(`${GAME_API_URL}/api/v1/sessions`, {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ mode: "ARCADE", ...payload, userId }),
+                body:    JSON.stringify({ mode: "ARCADE", ...payload, userId, socketId }),
             });
 
             if (!res.ok) {
@@ -190,16 +203,17 @@ export function useGameEngine() {
             console.info("[enterQueue] response:", data);
 
             if (data.status === "MATCHED") {
-                applyMatched(data.sessionId);
+                applyMatched(data.sessionId, userId);
                 joinSession(data.sessionId, userId);
             } else {
                 setMatchStatus("QUEUED");
+                setQueuedUserId(userId); // Store for JOIN when MATCHED via socket
             }
         } catch (err: any) {
             console.error("[enterQueue] failed:", err);
             setQueueError(err.message ?? "Failed to enter queue");
         }
-    }, [applyMatched, setQueueError, joinSession]);
+    }, [applyMatched, setQueuedUserId, setQueueError, joinSession]);
 
     const state = useGameStore();
 
@@ -223,10 +237,10 @@ export function useGameEngine() {
         abortReason:          state.abortReason,
         enterQueue,
         joinSession,
-        // ✅ FIX: emit "PLAYER_READY" (matches handler) with sessionId + userId
+        // ✅ FIX: emit "PLAYER_READY" — use same userId as join (pendingUserId or ref)
         readyUp: () => {
             const s      = useGameStore.getState();
-            const userId = userIdRef.current;
+            const userId = userIdRef.current ?? s.pendingUserId;
             if (!s.sessionId || !userId) return;
             getSocket().emit("PLAYER_READY", { sessionId: s.sessionId, userId });
         },

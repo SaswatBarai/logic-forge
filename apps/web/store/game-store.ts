@@ -58,6 +58,7 @@ interface GameState {
     matchStatus:       "IDLE" | "QUEUED" | "MATCHED";
     queueError:        string | null;
     sessionId:         string | null;
+    pendingUserId:     string | null;
     sessionStatus:     SessionStatus;
     config:            BlitzConfig | null;
     players:           PlayerSnapshot[];
@@ -76,7 +77,8 @@ interface GameState {
     setConnected:         (v: boolean) => void;
     setSocketStatus:      (v: GameState["socketStatus"]) => void;
     setMatchStatus:       (v: GameState["matchStatus"]) => void;
-    applyMatched:         (sessionId: string) => void;
+    applyMatched:         (sessionId: string, userId?: string) => void;
+    setQueuedUserId:      (userId: string) => void;
     setQueueError:        (msg: string | null) => void;
     applySessionJoined:   (payload: SessionJoinedPayload) => void;
     applyPlayerConnected: (userId: string) => void;
@@ -142,6 +144,7 @@ const initialState = {
     matchStatus:       "IDLE"       as const,
     queueError:        null,
     sessionId:         null,
+    pendingUserId:     null as string | null,
     sessionStatus:     "IDLE"       as SessionStatus,
     config:            null,
     players:           [],
@@ -163,7 +166,12 @@ export const useGameStore = create<GameState>()(
         setConnected:    (v)   => set((s) => { s.connected    = v; }),
         setSocketStatus: (v)   => set((s) => { s.socketStatus = v; }),
         setMatchStatus:  (v)   => set((s) => { s.matchStatus  = v; }),
-        applyMatched:    (sid) => set((s) => { s.matchStatus  = "MATCHED"; s.sessionId = sid; }),
+        applyMatched:    (sid, uid) => set((s) => {
+            s.matchStatus  = "MATCHED";
+            s.sessionId    = sid;
+            if (uid) s.pendingUserId = uid;
+        }),
+        setQueuedUserId: (uid) => set((s) => { s.pendingUserId = uid; }), // Use same userId for JOIN when MATCHED
         setQueueError:   (msg) => set((s) => { s.queueError   = msg; }),
 
         applySessionJoined: (payload) => set((s) => {

@@ -10,6 +10,7 @@ const CreateSessionSchema = z.object({
     sessionType:  z.enum(["TIMER", "LIVE"]),
     category:     z.enum(["MISSING_LINK", "BOTTLENECK", "TRACING"]).nullable(),
     userId:       z.string().min(1),
+    socketId:     z.string().optional(), // Tab that queued — ensures MATCHED goes to correct tab
 }).refine(
     (d) => !(d.sessionType === "TIMER" && d.category === null),
     { message: "Timer Mode requires a category", path: ["category"] }

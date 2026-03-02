@@ -1,7 +1,7 @@
 // apps/web/app/(game)/arcade/page.tsx
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
@@ -83,6 +83,25 @@ export default function ArcadeModePage() {
         sessionStatus, sessionId, queueError,
         enterQueue, joinSession, reset,
     } = useGameEngine();
+
+    // ── Auto-retry when stuck on "Connecting to arena" (MATCHED but no SESSION_JOINED)
+    const retryCountRef = useRef(0);
+    useEffect(() => {
+        if (matchStatus !== "MATCHED" || sessionStatus !== "IDLE" || !sessionId || !connected) {
+            retryCountRef.current = 0;
+            return;
+        }
+        retryCountRef.current = 0;
+        const maxRetries = 5;
+        const interval = setInterval(() => {
+            retryCountRef.current += 1;
+            if (retryCountRef.current <= maxRetries) {
+                console.info("[Arcade] Auto-retry JOIN_SESSION attempt", retryCountRef.current);
+                joinSession(sessionId);
+            }
+        }, 4000);
+        return () => clearInterval(interval);
+    }, [matchStatus, sessionStatus, sessionId, connected, joinSession]);
 
     // ── Wizard state ──────────────────────────────────────────────────────
     const [step,         setStep]         = useState(0);

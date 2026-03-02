@@ -36,20 +36,29 @@ export function registerSocketHandlers(
 
         // ─── JOIN_SESSION ────────────────────────────────────────────────
         // ✅ Never starts a round here — PLAYER_READY is the only gate
-        socket.on("JOIN_SESSION", async ({
-            sessionId,
-            userId,
-        }: { sessionId: string; userId: string }) => {
+        // ✅ Uses ack callback so client gets response reliably (event may not deliver in some setups)
+        socket.on("JOIN_SESSION", async (
+            { sessionId, userId }: { sessionId: string; userId: string },
+            ack?: (response: { ok: true; payload: object } | { ok: false; error: string }) => void
+        ) => {
+            logger.info({ socketId: socket.id, userId, sessionId }, "JOIN_SESSION received");
+            const sendError = (msg: string) => {
+                socket.emit("SESSION_ERROR", { message: msg });
+                ack?.({ ok: false, error: msg });
+            };
             try {
                 const session = await sessionService.getSession(sessionId);
                 if (!session) {
-                    socket.emit("SESSION_ERROR", {
-                        message: "Session not found or expired. Please re-queue.",
-                    });
                     logger.warn({ userId, sessionId }, "JOIN_SESSION: session not found");
+                    sendError("Session not found or expired. Please re-queue.");
                     return;
                 }
-
+                if (!session.players.includes(userId)) {
+                    logger.warn(
+                        { userId, sessionId, sessionPlayers: session.players },
+                        "JOIN_SESSION: userId not in session.players — allowing join"
+                    );
+                }
                 await socket.join(sessionId);
                 socket.data.sessionId = sessionId;
                 socket.data.userId    = userId;
@@ -57,19 +66,21 @@ export function registerSocketHandlers(
                 await sessionService.markPlayerJoined(sessionId, userId);
                 const { players } = await sessionService.serialize(session);
 
-                // Ack this player — sets client to LOBBY state
-                socket.emit("SESSION_JOINED", {
+                const payload = {
                     sessionId,
                     status:  session.status,
                     config:  session.config,
                     players,
-                });
+                };
+                socket.emit("SESSION_JOINED", payload);
+                ack?.({ ok: true, payload });
+                logger.info({ userId, sessionId, socketId: socket.id }, "SESSION_JOINED emitted");
 
                 await sessionService.clearPendingMatch(userId);
-                logger.info({ userId, sessionId, playerFormat: session.config.playerFormat }, "Joined session — waiting for PLAYER_READY");
+                logger.info({ userId, sessionId, playerFormat: session.config.playerFormat }, "Joined session");
             } catch (err) {
                 logger.error({ err, userId, sessionId }, "Error in JOIN_SESSION handler");
-                socket.emit("SESSION_ERROR", { message: "Failed to join session." });
+                sendError("Failed to join session.");
             }
         });
 

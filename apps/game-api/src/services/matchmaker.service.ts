@@ -105,8 +105,12 @@ export class MatchmakerService {
                 "Dual session matched"
             );
 
-            // Notify the WAITING (first) player via socket
-            let opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
+            // Notify the WAITING (first) player via socket — use socketId from queue if stored
+            // (fixes multi-tab: last IDENTIFY overwrites Redis, so we use the tab that queued)
+            const opponentEntry = opponent as WaitingRoomEntry & { socketId?: string };
+            let opponentSocketId =
+                opponentEntry.socketId ??
+                (await this.sessionService.getSocketId(opponent.userId));
             if (!opponentSocketId) {
                 await new Promise((r) => setTimeout(r, 150));
                 opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
@@ -136,11 +140,16 @@ export class MatchmakerService {
             logger.info({ key, userId: payload.userId }, "Same user re-queued; use two browsers/accounts for 1v1");
         }
 
-        dualWaitingRoom.set(key, {
+        const payloadWithSocket = payload as CreateSessionPayload & { socketId?: string };
+        const entry: WaitingRoomEntry & { socketId?: string } = {
             userId: payload.userId,
             payload,
             queuedAt: now,
-        });
+        };
+        if (typeof payloadWithSocket.socketId === "string") {
+            entry.socketId = payloadWithSocket.socketId;
+        }
+        dualWaitingRoom.set(key, entry);
         logger.info({ key, userId: payload.userId }, "Player queued for Dual Mode");
         return { status: "QUEUED", queueKey: key };
     }
