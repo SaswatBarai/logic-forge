@@ -1,8 +1,7 @@
-// apps/web/hooks/use-game-engine.ts
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import { useSession }  from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { io, Socket } from "socket.io-client";
 import {
     useGameStore,
@@ -47,11 +46,10 @@ export function useGameEngine() {
         applySessionEnd, applySessionAborted,
     } = useGameStore();
 
-    // joinSession defined early so MATCHED listener can reference it
     const joinSession = useCallback((sessionId: string, userIdOverride?: string) => {
         const userId = userIdOverride ?? userIdRef.current;
         if (!userId) {
-            console.error("[joinSession] No userId available — JOIN_SESSION not emitted");
+            console.error("[joinSession] No userId — JOIN_SESSION not emitted");
             return;
         }
         console.info("[WS] Emitting JOIN_SESSION", { sessionId, userId });
@@ -85,12 +83,11 @@ export function useGameEngine() {
         socket.on("disconnect",    onDisconnect);
         socket.on("connect_error", () => setSocketStatus("ERROR"));
 
-        socket.on("IDENTIFIED",       () => {
+        socket.on("IDENTIFIED", () => {
             identifiedRef.current = true;
             console.info("[WS] Identified");
         });
 
-        // ✅ THE FIX — waiting player receives MATCHED via socket and joins
         socket.on("MATCHED", (p: { status: string; sessionId: string }) => {
             console.info("[WS] MATCHED via socket", p);
             const userId = userIdRef.current ?? crypto.randomUUID();
@@ -98,21 +95,21 @@ export function useGameEngine() {
             joinSession(p.sessionId, userId);
         });
 
-        socket.on("SESSION_JOINED",   (p: SessionJoinedPayload)  => applySessionJoined(p));
-        socket.on("PLAYER_CONNECTED", (p: { userId: string })    => applyPlayerConnected(p.userId));
-        socket.on("ROUND_START",      (p: RoundStartPayload)     => applyRoundStart(p));
-        socket.on("ROUND_RESULT",     (p: RoundResultPayload)    => applyRoundResult(p));
-        socket.on("TIMER_SYNC",       (p: TimerSyncPayload)      => applyTimerSync(p));
-        socket.on("SESSION_END",      (p: SessionEndPayload)     => applySessionEnd(p));
-        socket.on("SESSION_ABORTED",  (p: SessionAbortedPayload) => applySessionAborted(p));
-        socket.on("ERROR",            (p: { message: string })   => console.error("[WS] Error:", p.message));
+        socket.on("SESSION_JOINED",   (p: SessionJoinedPayload)       => applySessionJoined(p));
+        socket.on("PLAYER_CONNECTED", (p: { userId: string })         => applyPlayerConnected(p.userId));
+        socket.on("ROUND_START",      (p: RoundStartPayload)          => applyRoundStart(p));
+        socket.on("ROUND_RESULT",     (p: RoundResultPayload)         => applyRoundResult(p));
+        socket.on("TIMER_SYNC",       (p: TimerSyncPayload)           => applyTimerSync(p));
+        socket.on("SESSION_END",      (p: SessionEndPayload)          => applySessionEnd(p));
+        socket.on("SESSION_ABORTED",  (p: SessionAbortedPayload)      => applySessionAborted(p));
+        socket.on("ERROR",            (p: { message: string })        => console.error("[WS] Error:", p.message));
 
         return () => {
             socket.off("connect",          onConnect);
             socket.off("disconnect",       onDisconnect);
             socket.off("connect_error");
             socket.off("IDENTIFIED");
-            socket.off("MATCHED");           // ✅ cleanup
+            socket.off("MATCHED");
             socket.off("SESSION_JOINED");
             socket.off("PLAYER_CONNECTED");
             socket.off("ROUND_START");
@@ -133,15 +130,17 @@ export function useGameEngine() {
         identifiedRef.current = true;
     }, [session]);
 
+    // ✅ FIX: emit "SUBMIT_ANSWER" (matches handler) with roundNumber from store
     const submitAnswer = useCallback((
         sessionId: string, challengeId: string, answer: string
     ) => {
-        const userId = userIdRef.current;
+        const userId       = userIdRef.current;
+        const roundNumber  = useGameStore.getState().currentRound;
         if (!userId) {
-            console.error("[submitAnswer] No userId — SUBMIT not emitted");
+            console.error("[submitAnswer] No userId — SUBMIT_ANSWER not emitted");
             return;
         }
-        getSocket().emit("SUBMIT", { sessionId, userId, challengeId, answer });
+        getSocket().emit("SUBMIT_ANSWER", { sessionId, userId, challengeId, answer, roundNumber });
     }, []);
 
     const enterQueue = useCallback(async (payload: {
@@ -154,28 +153,17 @@ export function useGameEngine() {
 
         setQueueError(null);
 
-        // Ensure socket is connected and server has registered this user (IDENTIFIED)
-        // so the matchmaker can find our socket when another player matches
         if (!identifiedRef.current) {
             if (!socket.connected) {
                 await new Promise<void>((resolve, reject) => {
                     const t = setTimeout(() => reject(new Error("Connection timeout")), 8000);
-                    socket.once("connect", () => {
-                        clearTimeout(t);
-                        resolve();
-                    });
-                    socket.once("connect_error", () => {
-                        clearTimeout(t);
-                        reject(new Error("Failed to connect"));
-                    });
+                    socket.once("connect", () => { clearTimeout(t); resolve(); });
+                    socket.once("connect_error", () => { clearTimeout(t); reject(new Error("Failed to connect")); });
                 });
             }
-            await new Promise<void>((resolve, reject) => {
-                const t = setTimeout(() => resolve(), 3000); // proceed after 3s even if no ack
-                socket.once("IDENTIFIED", () => {
-                    clearTimeout(t);
-                    resolve();
-                });
+            await new Promise<void>((resolve) => {
+                const t = setTimeout(() => resolve(), 3000);
+                socket.once("IDENTIFIED", () => { clearTimeout(t); resolve(); });
                 socket.emit("IDENTIFY", { userId });
             });
         }
@@ -184,19 +172,12 @@ export function useGameEngine() {
             const res = await fetch(`${GAME_API_URL}/api/v1/sessions`, {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({
-                    mode: "ARCADE",
-                    ...payload,
-                    userId,
-                }),
+                body:    JSON.stringify({ mode: "ARCADE", ...payload, userId }),
             });
 
             if (!res.ok) {
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody?.error?.message
-                    ?? `Matchmaker error: ${res.status}`
-                );
+                throw new Error(errBody?.error?.message ?? `Matchmaker error: ${res.status}`);
             }
 
             const { data } = await res.json();
@@ -206,7 +187,6 @@ export function useGameEngine() {
                 setMatchStatus("MATCHED");
                 joinSession(data.sessionId, userId);
             } else {
-                // DUAL mode — waiting for MATCHED socket event
                 setMatchStatus("QUEUED");
             }
         } catch (err: any) {
@@ -237,7 +217,13 @@ export function useGameEngine() {
         abortReason:          state.abortReason,
         enterQueue,
         joinSession,
-        readyUp:              () => getSocket().emit("READY", {}),
+        // ✅ FIX: emit "PLAYER_READY" (matches handler) with sessionId + userId
+        readyUp: () => {
+            const s      = useGameStore.getState();
+            const userId = userIdRef.current;
+            if (!s.sessionId || !userId) return;
+            getSocket().emit("PLAYER_READY", { sessionId: s.sessionId, userId });
+        },
         submitAnswer,
         dismissResultOverlay: state.dismissResultOverlay,
         reset:                state.reset,
