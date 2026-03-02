@@ -11,6 +11,40 @@ import { TimerBar }           from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
 
+// These categories use fill-in-the-blank — submit only the blank value, not full code
+const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
+
+/**
+ * Given the original template (with "________") and the user's edited code,
+ * extract only the text that replaced the blank.
+ */
+function extractBlankAnswer(template: string, filledCode: string): string {
+    const BLANK = "________";
+    const blankIdx = template.indexOf(BLANK);
+    if (blankIdx === -1) return filledCode;
+
+    const before = template.substring(0, blankIdx);
+    const after  = template.substring(blankIdx + BLANK.length);
+
+    const startIdx = filledCode.indexOf(before);
+    if (startIdx === -1) return filledCode;
+
+    const valueStart = startIdx + before.length;
+    const endIdx     = after.length > 0 ? filledCode.lastIndexOf(after) : filledCode.length;
+    if (endIdx === -1 || endIdx <= valueStart) return filledCode;
+
+    return filledCode.substring(valueStart, endIdx).trim();
+}
+
+function resolveEditorLanguage(lang?: string): string {
+    switch (lang?.toUpperCase()) {
+        case "CPP":    return "cpp";
+        case "JAVA":   return "java";
+        case "PYTHON": return "python";
+        default:       return "python";
+    }
+}
+
 export function GameArena() {
     const { data: session } = useSession();
 
@@ -30,7 +64,9 @@ export function GameArena() {
     const roundHistory = useGameStore((s) => s.roundHistory);
     const config       = useGameStore((s) => s.config);
 
-    const isSingle = config?.playerFormat === "SINGLE";
+    const isSingle         = config?.playerFormat === "SINGLE";
+    const isBlankChallenge = BLANK_CATEGORIES.has(challenge?.category ?? "");
+    const editorLanguage   = resolveEditorLanguage(challenge?.language);
 
     if (!challenge) return null;
 
@@ -43,7 +79,12 @@ export function GameArena() {
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id) return;
         setIsSubmitting(true);
-        submitAnswer(sessionId, challenge.id, code);
+
+        const answer = isBlankChallenge
+            ? extractBlankAnswer(challenge.codeTemplate, code)
+            : code;
+
+        submitAnswer(sessionId, challenge.id, answer);
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
@@ -81,7 +122,6 @@ export function GameArena() {
                         </h1>
                     </div>
 
-                    {/* ✅ Score HUD: solo shows only YOU, dual shows YOU + OPP */}
                     <div className="flex gap-3">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
@@ -121,6 +161,9 @@ export function GameArena() {
                                     <div className="flex justify-between items-center mb-3 px-1">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                                             Code Editor
+                                            {isBlankChallenge && (
+                                                <span className="ml-2 text-primary normal-case">· Fill in the blank only</span>
+                                            )}
                                         </span>
                                         <button
                                             onClick={handleSubmit}
@@ -136,7 +179,7 @@ export function GameArena() {
                                     </div>
                                     <div className="flex-1 min-h-0">
                                         <CodeEditor
-                                            language="python"
+                                            language={editorLanguage}
                                             code={code}
                                             onChange={(val) => setCode(val || "")}
                                         />

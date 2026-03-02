@@ -27,8 +27,9 @@ export interface RoundChallenge {
     description: string;
     codeTemplate: string;
     hints: unknown;
-    timeLimitMs: number | null;   // null = Live Mode (no countdown)
-    category?: string;            // e.g. "STATE_TRACING" — used to switch answer UI
+    timeLimitMs: number | null;
+    category?: string;
+    language?: string;        // ← ADDED
 }
 
 export interface PlayerSnapshot {
@@ -47,7 +48,6 @@ export interface RoundResult {
     executionTimeMs: number;
 }
 
-// ── Per-round history entry for results screen ────────────────────────────
 export interface RoundHistoryEntry {
     roundNumber:     number;
     userId:          string;
@@ -55,8 +55,6 @@ export interface RoundHistoryEntry {
     score:           number;
     executionTimeMs: number;
 }
-
-
 
 interface GameState {
     connected: boolean;
@@ -75,9 +73,7 @@ interface GameState {
     showResultOverlay: boolean;
     myLives: number;
     abortReason: string | null;
-    // ── Timer ──
     timeRemaining: number | null;
-    // ── Results history ──
     roundHistory: RoundHistoryEntry[];
 
     setConnected: (v: boolean) => void;
@@ -97,7 +93,6 @@ interface GameState {
     reset: () => void;
 }
 
-// ── Payload shapes ────────────────────────────────────────────────────────
 export interface SessionJoinedPayload {
     sessionId: string;
     config: BlitzConfig;
@@ -119,7 +114,7 @@ export interface RoundResultPayload {
     challengeId: string;
     passed: boolean;
     points: number;
-    verdict: string;   // CORRECT | PARTIAL | INCORRECT | COMPILE_ERROR | RUNTIME_ERROR | TIMEOUT
+    verdict: string;
     executionTimeMs: number;
     livesRemaining?: number;
     roundState: {
@@ -179,7 +174,7 @@ export const useGameStore = create<GameState>()(
             s.sessionId = sid;
             if (uid) s.pendingUserId = uid;
         }),
-        setQueuedUserId: (uid) => set((s) => { s.pendingUserId = uid; }), // Use same userId for JOIN when MATCHED
+        setQueuedUserId: (uid) => set((s) => { s.pendingUserId = uid; }),
         setQueueError: (msg) => set((s) => { s.queueError = msg; }),
 
         applySessionJoined: (payload) => set((s) => {
@@ -217,14 +212,12 @@ export const useGameStore = create<GameState>()(
             s.players = payload.players;
             s.lastResult = null;
             s.showResultOverlay = false;
-            // ── Seed timer from challenge config ──────────────────────────
             s.timeRemaining = payload.challenge.timeLimitMs;
         }),
 
         applyRoundResult: (payload) => set((s) => {
             const roundNum = payload.roundState.currentRound - 1 || s.currentRound;
 
-            // Deduplication guard — safe for both SINGLE and DUAL
             const alreadyRecorded = s.roundHistory.some(
                 (r) => r.roundNumber === roundNum && r.userId === payload.userId
             );
@@ -260,8 +253,6 @@ export const useGameStore = create<GameState>()(
             }
         }),
 
-
-        // ── TIMER_SYNC — server-driven countdown ──────────────────────────
         applyTimerSync: (payload) => set((s) => {
             s.timeRemaining = payload.remainingMs;
         }),
