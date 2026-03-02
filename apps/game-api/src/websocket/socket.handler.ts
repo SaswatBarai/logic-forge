@@ -1,14 +1,14 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import { logger } from "../app";
-import { SessionService }    from "../services/session.service";
+import { SessionService } from "../services/session.service";
 import { MatchmakerService } from "../services/matchmaker.service";
-import { RoundService }      from "../services/round.service";
+import { RoundService } from "../services/round.service";
 
 export function registerSocketHandlers(
     io: SocketServer,
-    sessionService:    SessionService,
+    sessionService: SessionService,
     matchmakerService: MatchmakerService,
-    roundService:      RoundService
+    roundService: RoundService
 ) {
     io.on("connection", (socket: Socket) => {
         logger.info({ socketId: socket.id }, "Client connected");
@@ -61,15 +61,15 @@ export function registerSocketHandlers(
                 }
                 await socket.join(sessionId);
                 socket.data.sessionId = sessionId;
-                socket.data.userId    = userId;
+                socket.data.userId = userId;
 
                 await sessionService.markPlayerJoined(sessionId, userId);
                 const { players } = await sessionService.serialize(session);
 
                 const payload = {
                     sessionId,
-                    status:  session.status,
-                    config:  session.config,
+                    status: session.status,
+                    config: session.config,
                     players,
                 };
                 socket.emit("SESSION_JOINED", payload);
@@ -91,6 +91,7 @@ export function registerSocketHandlers(
             sessionId,
             userId,
         }: { sessionId: string; userId: string }) => {
+            logger.info({ socketId: socket.id, userId, sessionId }, "PLAYER_READY received");
             try {
                 const session = await sessionService.getSession(sessionId);
                 if (!session) return;
@@ -124,9 +125,9 @@ export function registerSocketHandlers(
             answer,
             roundNumber,
         }: {
-            sessionId:   string;
-            userId:      string;
-            answer:      string;
+            sessionId: string;
+            userId: string;
+            answer: string;
             roundNumber: number;
         }) => {
             try {

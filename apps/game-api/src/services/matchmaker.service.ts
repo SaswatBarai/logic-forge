@@ -42,7 +42,7 @@ export class MatchmakerService {
     constructor(
         private readonly sessionService: SessionService,
         private readonly io: SocketServer   // ✅ was missing — io was silently dropped before
-    ) {}
+    ) { }
 
     async findOrCreateSession(
         payload: CreateSessionPayload
@@ -111,10 +111,21 @@ export class MatchmakerService {
             let opponentSocketId =
                 opponentEntry.socketId ??
                 (await this.sessionService.getSocketId(opponent.userId));
+
+            // Retry up to 3 times × 250ms to handle reconnect / gateway timing
             if (!opponentSocketId) {
-                await new Promise((r) => setTimeout(r, 150));
-                opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
+                for (let attempt = 1; attempt <= 3 && !opponentSocketId; attempt++) {
+                    await new Promise((r) => setTimeout(r, 250));
+                    opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
+                    if (!opponentSocketId) {
+                        logger.warn(
+                            { userId: opponent.userId, attempt },
+                            "Waiting player socket not found — retrying…"
+                        );
+                    }
+                }
             }
+
             if (opponentSocketId) {
                 this.io.to(opponentSocketId).emit("MATCHED", {
                     status: "MATCHED",
@@ -125,9 +136,12 @@ export class MatchmakerService {
                     "Emitted MATCHED to waiting player via socket"
                 );
             } else {
+                // Socket not found even after retries.
+                // `pending:match:userId` was already written by createSession, so P1
+                // will receive MATCHED on their next IDENTIFY (e.g. page refresh / reconnect).
                 logger.warn(
-                    { userId: opponent.userId },
-                    "Waiting player socket not found — ensure they connected and sent IDENTIFY before queuing"
+                    { userId: opponent.userId, sessionId },
+                    "Waiting player socket still not found after retries — relying on pending:match Redis key for delivery"
                 );
             }
 

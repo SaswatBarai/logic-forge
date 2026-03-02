@@ -5,8 +5,8 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { MatchLobby }    from "@/components/game/lobby";
-import { GameArena }     from "@/components/game/arena";
+import { MatchLobby } from "@/components/game/lobby";
+import { GameArena } from "@/components/game/arena";
 import { ResultsScreen } from "@/components/game/results-screen";
 import { useGameEngine } from "@/hooks/use-game-engine";
 import {
@@ -14,35 +14,35 @@ import {
     User, Users, Timer, Braces, ArrowLeft, CheckCircle2,
 } from "lucide-react";
 
-type PlayerFormat  = "SINGLE" | "DUAL";
-type SessionType   = "TIMER" | "LIVE";
+type PlayerFormat = "SINGLE" | "DUAL";
+type SessionType = "TIMER" | "LIVE";
 type TimerCategory = "MISSING_LINK" | "BOTTLENECK" | "TRACING";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
 // ── Wizard option definitions ─────────────────────────────────────────────
 const FORMAT_OPTIONS = [
-    { value: "SINGLE" as PlayerFormat, icon: User,   label: "Solo Run",     desc: "You vs. the system. Pure skill, no excuses." },
-    { value: "DUAL"   as PlayerFormat, icon: Users,  label: "Dual Engine",  desc: "Head-to-head. Find a rival, settle it live." },
+    { value: "SINGLE" as PlayerFormat, icon: User, label: "Solo Run", desc: "You vs. the system. Pure skill, no excuses." },
+    { value: "DUAL" as PlayerFormat, icon: Users, label: "Dual Engine", desc: "Head-to-head. Find a rival, settle it live." },
 ] as const;
 
 const TYPE_OPTIONS = [
     { value: "TIMER" as SessionType, icon: Timer, label: "Timer Mode", desc: "One category, five rounds, increasing pressure.", color: "text-primary" },
-    { value: "LIVE"  as SessionType, icon: Zap,   label: "Live Mode",  desc: "Random categories every round. Lives system active.", color: "text-yellow-400" },
+    { value: "LIVE" as SessionType, icon: Zap, label: "Live Mode", desc: "Random categories every round. Lives system active.", color: "text-yellow-400" },
 ] as const;
 
 const CATEGORY_OPTIONS = [
-    { value: "MISSING_LINK" as TimerCategory, icon: Braces, label: "Missing Link",       desc: "Complete the missing logical condition." },
-    { value: "BOTTLENECK"   as TimerCategory, icon: Zap,    label: "Bottleneck Breaker", desc: "Identify the optimal algorithm or structure." },
-    { value: "TRACING"      as TimerCategory, icon: Cpu,    label: "State Tracing",      desc: "Predict the final state after execution." },
+    { value: "MISSING_LINK" as TimerCategory, icon: Braces, label: "Missing Link", desc: "Complete the missing logical condition." },
+    { value: "BOTTLENECK" as TimerCategory, icon: Zap, label: "Bottleneck Breaker", desc: "Identify the optimal algorithm or structure." },
+    { value: "TRACING" as TimerCategory, icon: Cpu, label: "State Tracing", desc: "Predict the final state after execution." },
 ] as const;
 
 // ── Step copy ─────────────────────────────────────────────────────────────
 const STEP_COPY = [
     { eyebrow: "Step 1 of 3", headline: "Choose your\nformat.", sub: "Determines matchmaking and scoring logic." },
-    { eyebrow: "Step 2 of 3", headline: "Session\ntype.",       sub: "Defines how challenges are selected and paced." },
+    { eyebrow: "Step 2 of 3", headline: "Session\ntype.", sub: "Defines how challenges are selected and paced." },
     { eyebrow: "Step 3 of 3", headline: "Pick your\ncategory.", sub: "All five rounds will use this challenge type." },
-    { eyebrow: "Ready",       headline: "Parameters\nlocked.",  sub: "Review your session config, then enter the arena." },
+    { eyebrow: "Ready", headline: "Parameters\nlocked.", sub: "Review your session config, then enter the arena." },
 ];
 
 // ── Reusable card button ──────────────────────────────────────────────────
@@ -84,35 +84,40 @@ export default function ArcadeModePage() {
         enterQueue, joinSession, reset,
     } = useGameEngine();
 
-    // ── Auto-retry when stuck on "Connecting to arena" (MATCHED but no SESSION_JOINED)
+    // ── Auto-retry when stuck on "Connecting to arena" (MATCHED but no SESSION_JOINED) ──
     const retryCountRef = useRef(0);
     useEffect(() => {
         if (matchStatus !== "MATCHED" || sessionStatus !== "IDLE" || !sessionId || !connected) {
+            // Only reset counter when leaving the "needs retry" state
             retryCountRef.current = 0;
             return;
         }
-        retryCountRef.current = 0;
+        // Bug 5 fix: DON'T reset retryCountRef here — that was defeating the maxRetries cap.
         const maxRetries = 5;
         const interval = setInterval(() => {
             retryCountRef.current += 1;
             if (retryCountRef.current <= maxRetries) {
                 console.info("[Arcade] Auto-retry JOIN_SESSION attempt", retryCountRef.current);
+                // Re-emit IDENTIFY before retrying JOIN_SESSION so the server can
+                // re-deliver a pending MATCHED event (Bug 4 mitigation, client-side).
                 joinSession(sessionId);
+            } else {
+                clearInterval(interval);
             }
         }, 4000);
         return () => clearInterval(interval);
     }, [matchStatus, sessionStatus, sessionId, connected, joinSession]);
 
     // ── Wizard state ──────────────────────────────────────────────────────
-    const [step,         setStep]         = useState(0);
+    const [step, setStep] = useState(0);
     const [playerFormat, setPlayerFormat] = useState<PlayerFormat | null>(null);
-    const [sessionType,  setSessionType]  = useState<SessionType  | null>(null);
-    const [category,     setCategory]     = useState<TimerCategory | null>(null);
-    const [isQueuing,    setIsQueuing]    = useState(false);
+    const [sessionType, setSessionType] = useState<SessionType | null>(null);
+    const [category, setCategory] = useState<TimerCategory | null>(null);
+    const [isQueuing, setIsQueuing] = useState(false);
 
     const isInSession = matchStatus === "MATCHED" || matchStatus === "QUEUED" || sessionStatus !== "IDLE";
-    const hasError    = socketStatus === "ERROR";
-    const copy        = STEP_COPY[step] ?? STEP_COPY[0];
+    const hasError = socketStatus === "ERROR";
+    const copy = STEP_COPY[step] ?? STEP_COPY[0];
 
     const handleBack = useCallback(() => {
         if (step === 3 && sessionType === "LIVE") setStep(1);
@@ -132,7 +137,7 @@ export default function ArcadeModePage() {
             <div className="relative min-h-screen flex flex-col bg-background select-none">
                 <div className="flex-1 flex flex-col">
                     {(sessionStatus === "LOBBY" || matchStatus === "QUEUED") && <MatchLobby />}
-                    {sessionStatus === "ACTIVE"    && <GameArena />}
+                    {sessionStatus === "ACTIVE" && <GameArena />}
                     {sessionStatus === "COMPLETED" && <ResultsScreen />}
                     {/* MATCHED but still connecting (never got SESSION_JOINED) */}
                     {matchStatus === "MATCHED" && sessionStatus === "IDLE" && (
@@ -156,7 +161,7 @@ export default function ArcadeModePage() {
                             )}
                         </div>
                     )}
-                    {sessionStatus === "ABORTED"   && (
+                    {sessionStatus === "ABORTED" && (
                         <div className="flex-1 flex flex-col items-center justify-center gap-6">
                             <p className="text-destructive font-black text-xl uppercase">Session Aborted</p>
                             <button
@@ -265,8 +270,8 @@ export default function ArcadeModePage() {
                                         <div className="border-2 border-foreground bg-card shadow-retro-lg p-5 space-y-3">
                                             <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Session Config</p>
                                             <div className="grid grid-cols-3 gap-3 text-center">
-                                                <ConfigPill label="Format"   value={playerFormat ?? "—"} />
-                                                <ConfigPill label="Type"     value={sessionType  ?? "—"} />
+                                                <ConfigPill label="Format" value={playerFormat ?? "—"} />
+                                                <ConfigPill label="Type" value={sessionType ?? "—"} />
                                                 <ConfigPill label="Category"
                                                     value={sessionType === "LIVE" ? "Random" : (category?.replace(/_/g, " ") ?? "—")}
                                                     highlight={sessionType === "LIVE"}
@@ -277,9 +282,9 @@ export default function ArcadeModePage() {
                                         {/* Feature strip */}
                                         <div className="flex flex-wrap gap-3">
                                             {[
-                                                { icon: Zap,    label: "5 Rounds" },
+                                                { icon: Zap, label: "5 Rounds" },
                                                 { icon: Shield, label: "AI-Proof" },
-                                                { icon: Cpu,    label: "Live Execution" },
+                                                { icon: Cpu, label: "Live Execution" },
                                             ].map((item, i) => (
                                                 <motion.div key={item.label}
                                                     className="flex items-center gap-2 px-4 py-2 border-2 border-foreground shadow-retro-sm font-bold uppercase tracking-widest text-xs bg-card"
@@ -317,7 +322,7 @@ export default function ArcadeModePage() {
                                         <motion.button
                                             className="arcade-btn bg-primary px-10 py-5 border-2 border-foreground shadow-retro text-xl font-black uppercase tracking-widest flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden w-fit"
                                             whileHover={connected && !isQueuing ? { scale: 1.04, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" } : {}}
-                                            whileTap={connected && !isQueuing   ? { scale: 0.97, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" } : {}}
+                                            whileTap={connected && !isQueuing ? { scale: 0.97, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" } : {}}
                                             onClick={handleEnterArena}
                                             disabled={!connected || isQueuing}
                                         >
@@ -359,8 +364,8 @@ export default function ArcadeModePage() {
                                                     <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-primary">Parameters Locked</p>
                                                     <div className="flex flex-col gap-2 w-full px-4 font-mono text-xs">
                                                         {[
-                                                            ["FORMAT",   playerFormat ?? "—"],
-                                                            ["TYPE",     sessionType  ?? "—"],
+                                                            ["FORMAT", playerFormat ?? "—"],
+                                                            ["TYPE", sessionType ?? "—"],
                                                             ["CATEGORY", sessionType === "LIVE" ? "RANDOM" : (category ?? "—")],
                                                         ].map(([k, v]) => (
                                                             <div key={k} className="flex justify-between border-b border-white/10 pb-1">

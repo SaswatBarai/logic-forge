@@ -13,7 +13,7 @@ import {
     SessionAbortedPayload,
 } from "@/store/game-store";
 
-const GAME_WS_URL  = process.env.NEXT_PUBLIC_GAME_WS_URL  || "http://localhost:3001";
+const GAME_WS_URL = process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:3001";
 const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:3001";
 
 let _socket: Socket | null = null;
@@ -21,11 +21,11 @@ let _socket: Socket | null = null;
 function getSocket(): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
-            transports:           ["websocket", "polling"],
-            reconnection:         true,
-            reconnectionDelay:    2_000,
+            transports: ["websocket", "polling"],
+            reconnection: true,
+            reconnectionDelay: 2_000,
             reconnectionAttempts: 5,
-            autoConnect:          true,
+            autoConnect: true,
         });
     }
     return _socket;
@@ -33,7 +33,11 @@ function getSocket(): Socket {
 
 export function useGameEngine() {
     const { data: session } = useSession();
-    const identifiedRef     = useRef(false);
+    const identifiedRef = useRef(false);
+    // Track the last userId we sent IDENTIFY for — to detect session changes
+    const lastIdentifiedUserIdRef = useRef<string | null>(null);
+    // Bug A fix: track previous userId STRING (not session object) to avoid spam
+    const prevUserIdRef = useRef<string | null>(null);
 
     const userIdRef = useRef<string | null>(null);
     userIdRef.current =
@@ -73,8 +77,12 @@ export function useGameEngine() {
             setConnected(true);
             setSocketStatus("OPEN");
             const userId = userIdRef.current;
-            if (userId && !identifiedRef.current) {
+            // Bug 1 fix: Always emit IDENTIFY on (re)connect — don't gate on identifiedRef.
+            // identifiedRef is set to true only when server responds with IDENTIFIED.
+            if (userId) {
+                identifiedRef.current = false; // reset so we wait for the ack
                 socket.emit("IDENTIFY", { userId });
+                console.info("[WS] Emitting IDENTIFY on connect", { userId });
             }
         };
 
@@ -89,20 +97,26 @@ export function useGameEngine() {
             setSocketStatus("OPEN");
         }
 
-        socket.on("connect",       onConnect);
-        socket.on("disconnect",    onDisconnect);
+        socket.on("connect", onConnect);
+        socket.on("disconnect", onDisconnect);
         socket.on("connect_error", () => setSocketStatus("ERROR"));
 
         socket.on("IDENTIFIED", () => {
             identifiedRef.current = true;
-            console.info("[WS] Identified");
+            lastIdentifiedUserIdRef.current = userIdRef.current;
+            console.info("[WS] Identified as", userIdRef.current);
         });
 
         socket.on("MATCHED", (p: { status: string; sessionId: string }) => {
             console.info("[WS] MATCHED via socket", p);
-            // Use queued userId (from when we got QUEUED) — must match session.players
+            // Bug 2 fix: Never fall back to crypto.randomUUID() — that creates a phantom userId
+            // that doesn't exist in session.players and causes JOIN_SESSION to fail silently.
             const store = useGameStore.getState();
-            const userId = store.pendingUserId ?? userIdRef.current ?? crypto.randomUUID();
+            const userId = store.pendingUserId ?? userIdRef.current;
+            if (!userId) {
+                console.error("[WS] MATCHED received but userId is unknown — please refresh and re-queue.");
+                return;
+            }
             applyMatched(p.sessionId, userId);
             joinSession(p.sessionId, userId);
         });
@@ -112,18 +126,18 @@ export function useGameEngine() {
             setQueueError(p.message ?? "Failed to join session");
         });
 
-        socket.on("SESSION_JOINED",   (p: SessionJoinedPayload)       => applySessionJoined(p));
-        socket.on("PLAYER_CONNECTED", (p: { userId: string })         => applyPlayerConnected(p.userId));
-        socket.on("ROUND_START",      (p: RoundStartPayload)          => applyRoundStart(p));
-        socket.on("ROUND_RESULT",     (p: RoundResultPayload)         => applyRoundResult(p));
-        socket.on("TIMER_SYNC",       (p: TimerSyncPayload)           => applyTimerSync(p));
-        socket.on("SESSION_END",      (p: SessionEndPayload)          => applySessionEnd(p));
-        socket.on("SESSION_ABORTED",  (p: SessionAbortedPayload)      => applySessionAborted(p));
-        socket.on("ERROR",            (p: { message: string })        => console.error("[WS] Error:", p.message));
+        socket.on("SESSION_JOINED", (p: SessionJoinedPayload) => applySessionJoined(p));
+        socket.on("PLAYER_CONNECTED", (p: { userId: string }) => applyPlayerConnected(p.userId));
+        socket.on("ROUND_START", (p: RoundStartPayload) => applyRoundStart(p));
+        socket.on("ROUND_RESULT", (p: RoundResultPayload) => applyRoundResult(p));
+        socket.on("TIMER_SYNC", (p: TimerSyncPayload) => applyTimerSync(p));
+        socket.on("SESSION_END", (p: SessionEndPayload) => applySessionEnd(p));
+        socket.on("SESSION_ABORTED", (p: SessionAbortedPayload) => applySessionAborted(p));
+        socket.on("ERROR", (p: { message: string }) => console.error("[WS] Error:", p.message));
 
         return () => {
-            socket.off("connect",          onConnect);
-            socket.off("disconnect",       onDisconnect);
+            socket.off("connect", onConnect);
+            socket.off("disconnect", onDisconnect);
             socket.off("connect_error");
             socket.off("IDENTIFIED");
             socket.off("MATCHED");
@@ -137,23 +151,31 @@ export function useGameEngine() {
             socket.off("SESSION_ABORTED");
             socket.off("ERROR");
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [joinSession]);
 
+    // Bug A fix: Re-identify only when the userId STRING changes, not on every render.
+    // useSession() returns a new object reference on every render in Next.js, so
+    // depending on [session] directly caused 4-5x IDENTIFY spam per render cycle.
     useEffect(() => {
-        const socket = getSocket();
         const userId = userIdRef.current;
-        if (!socket.connected || !userId || identifiedRef.current) return;
+        // Guard: skip if userId hasn't changed from what we last identified with
+        if (!userId || userId === prevUserIdRef.current) return;
+        prevUserIdRef.current = userId;
+        const socket = getSocket();
+        if (!socket.connected) return;
+        // Only re-identify if this is a new/different user
+        identifiedRef.current = false;
         socket.emit("IDENTIFY", { userId });
-        identifiedRef.current = true;
+        console.info("[WS] Re-identifying — userId changed", { userId });
     }, [session]);
 
     // ✅ FIX: emit "SUBMIT_ANSWER" (matches handler) with roundNumber from store
     const submitAnswer = useCallback((
         sessionId: string, challengeId: string, answer: string
     ) => {
-        const userId       = userIdRef.current;
-        const roundNumber  = useGameStore.getState().currentRound;
+        const userId = userIdRef.current;
+        const roundNumber = useGameStore.getState().currentRound;
         if (!userId) {
             console.error("[submitAnswer] No userId — SUBMIT_ANSWER not emitted");
             return;
@@ -163,8 +185,8 @@ export function useGameEngine() {
 
     const enterQueue = useCallback(async (payload: {
         playerFormat: "SINGLE" | "DUAL";
-        sessionType:  "TIMER" | "LIVE";
-        category:     string | null;
+        sessionType: "TIMER" | "LIVE";
+        category: string | null;
     }) => {
         const socket = getSocket();
         const userId = userIdRef.current ?? crypto.randomUUID();
@@ -189,9 +211,9 @@ export function useGameEngine() {
         try {
             const socketId = socket.connected ? socket.id : undefined;
             const res = await fetch(`${GAME_API_URL}/api/v1/sessions`, {
-                method:  "POST",
+                method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ mode: "ARCADE", ...payload, userId, socketId }),
+                body: JSON.stringify({ mode: "ARCADE", ...payload, userId, socketId }),
             });
 
             if (!res.ok) {
@@ -218,34 +240,40 @@ export function useGameEngine() {
     const state = useGameStore();
 
     return {
-        connected:            state.connected,
-        socketStatus:         state.socketStatus,
-        matchStatus:          state.matchStatus,
-        queueError:           state.queueError,
-        sessionId:            state.sessionId,
-        sessionStatus:        state.sessionStatus,
-        config:               state.config,
-        players:              state.players,
-        currentRound:         state.currentRound,
-        totalRounds:          state.totalRounds,
-        challenge:            state.challenge,
-        lastResult:           state.lastResult,
-        showResultOverlay:    state.showResultOverlay,
-        timeRemaining:        state.timeRemaining,
-        roundHistory:         state.roundHistory,
-        myLives:              state.myLives,
-        abortReason:          state.abortReason,
+        connected: state.connected,
+        socketStatus: state.socketStatus,
+        matchStatus: state.matchStatus,
+        queueError: state.queueError,
+        sessionId: state.sessionId,
+        sessionStatus: state.sessionStatus,
+        config: state.config,
+        players: state.players,
+        currentRound: state.currentRound,
+        totalRounds: state.totalRounds,
+        challenge: state.challenge,
+        lastResult: state.lastResult,
+        showResultOverlay: state.showResultOverlay,
+        timeRemaining: state.timeRemaining,
+        roundHistory: state.roundHistory,
+        myLives: state.myLives,
+        abortReason: state.abortReason,
         enterQueue,
         joinSession,
-        // ✅ FIX: emit "PLAYER_READY" — use same userId as join (pendingUserId or ref)
-        readyUp: () => {
-            const s      = useGameStore.getState();
+        // Bug B fix: stable useCallback so readyUp has a consistent reference
+        // and is visible in DevTools logs when fired.
+        readyUp: useCallback(() => {
+            const s = useGameStore.getState();
             const userId = userIdRef.current ?? s.pendingUserId;
-            if (!s.sessionId || !userId) return;
+            if (!s.sessionId || !userId) {
+                console.warn("[WS] readyUp called but sessionId or userId missing", { sessionId: s.sessionId, userId });
+                return;
+            }
+            console.info("[WS] Emitting PLAYER_READY", { sessionId: s.sessionId, userId });
             getSocket().emit("PLAYER_READY", { sessionId: s.sessionId, userId });
-        },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []),
         submitAnswer,
         dismissResultOverlay: state.dismissResultOverlay,
-        reset:                state.reset,
+        reset: state.reset,
     };
 }
