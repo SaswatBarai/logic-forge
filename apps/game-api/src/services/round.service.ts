@@ -67,6 +67,7 @@ export interface RoundChallenge {
     codeTemplate: string;
     hints: unknown;
     timeLimitMs: number | null;
+    category: string;   // e.g. "STATE_TRACING", "THE_MISSING_LINK"
 }
 
 export interface EvaluateAnswerResult {
@@ -170,6 +171,7 @@ export class RoundService {
             codeTemplate: data.codeTemplate,
             hints: data.hints ?? null,
             timeLimitMs,
+            category: data.category,
         };
     }
 

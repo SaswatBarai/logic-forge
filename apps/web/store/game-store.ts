@@ -28,6 +28,7 @@ export interface RoundChallenge {
     codeTemplate: string;
     hints: unknown;
     timeLimitMs: number | null;   // null = Live Mode (no countdown)
+    category?: string;            // e.g. "STATE_TRACING" — used to switch answer UI
 }
 
 export interface PlayerSnapshot {

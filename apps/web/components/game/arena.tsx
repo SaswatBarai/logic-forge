@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect     } from "react";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
@@ -29,9 +29,18 @@ export function GameArena() {
     const isTimerMode = config?.sessionType === "TIMER";
 
     const [code, setCode] = useState(challenge?.codeTemplate || "");
+    const [tracingAnswer, setTracingAnswer] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const isTracing = challenge?.category === "STATE_TRACING";
+
     const roundHistory = useGameStore((s) => s.roundHistory);
+
+    // Reset both answer states whenever the challenge changes (new round)
+    useEffect(() => {
+        setCode(challenge?.codeTemplate || "");
+        setTracingAnswer("");
+    }, [challenge?.id]);
 
     if (!challenge) {
         return (
@@ -54,7 +63,8 @@ export function GameArena() {
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id) return;
         setIsSubmitting(true);
-        submitAnswer(sessionId, challenge.id, code);
+        const answer = isTracing ? tracingAnswer : code;
+        submitAnswer(sessionId, challenge.id, answer);
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
@@ -113,8 +123,8 @@ export function GameArena() {
                                         <Heart
                                             key={i}
                                             className={`h-4 w-4 transition-colors ${i < myLives
-                                                    ? "text-red-500 fill-red-500"
-                                                    : "text-slate-600 fill-slate-800"
+                                                ? "text-red-500 fill-red-500"
+                                                : "text-slate-600 fill-slate-800"
                                                 }`}
                                         />
                                     ))}
@@ -148,26 +158,53 @@ export function GameArena() {
                                 <div className="h-full p-4 flex flex-col">
                                     <div className="flex justify-between items-center mb-3 px-1">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                            Code Editor
+                                            {isTracing ? "Answer" : "Code Editor"}
                                         </span>
                                         <button
                                             onClick={handleSubmit}
-                                            disabled={isSubmitting}
+                                            disabled={isSubmitting || (isTracing && !tracingAnswer.trim())}
                                             className="arcade-btn bg-primary px-4 py-1.5 border-2 border-foreground shadow-retro-sm text-xs font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 hover:scale-105 active:scale-95 transition-transform"
                                         >
                                             {isSubmitting ? (
                                                 <><Loader2 className="h-3.5 w-3.5 animate-spin" />Running…</>
+                                            ) : isTracing ? (
+                                                <><CheckCircle2 className="h-3.5 w-3.5" />Submit Answer</>
                                             ) : (
                                                 <><Play className="h-3.5 w-3.5" />Run Code</>
                                             )}
                                         </button>
                                     </div>
                                     <div className="flex-1 min-h-0">
-                                        <CodeEditor
-                                            language="python"
-                                            code={code}
-                                            onChange={(val) => setCode(val || "")}
-                                        />
+                                        {isTracing ? (
+                                            // ── STATE_TRACING: plain-text answer input ──────────────
+                                            <div className="h-full flex flex-col gap-4 pt-2">
+                                                <p className="text-xs text-slate-400 font-medium px-1">
+                                                    Read the code in the panel on the left, trace the execution mentally, then type your answer below.
+                                                </p>
+                                                <textarea
+                                                    className="flex-1 w-full resize-none rounded-md border border-zinc-700 bg-zinc-950 px-4 py-3 font-mono text-base text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                                                    placeholder="Your answer (e.g. 3 or [1, 2, 3])…"
+                                                    value={tracingAnswer}
+                                                    onChange={(e) => setTracingAnswer(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        // Ctrl/Cmd+Enter to submit
+                                                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") handleSubmit();
+                                                    }}
+                                                    spellCheck={false}
+                                                    autoFocus
+                                                />
+                                                <p className="text-[10px] text-slate-600 font-mono px-1">
+                                                    Tip: press <kbd className="px-1 py-0.5 border border-slate-700 rounded text-[9px]">Ctrl+Enter</kbd> to submit
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            // ── All other categories: Monaco code editor ────────────
+                                            <CodeEditor
+                                                language="python"
+                                                code={code}
+                                                onChange={(val) => setCode(val || "")}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             </ResizablePanel>
