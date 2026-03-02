@@ -1,32 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
 import { useGameStore }  from "@/store/game-store";
-import { CodeEditor }          from "./code-editor";
-import { PromptCanvas }        from "./prompt-canvas";
-import { TimerBar }            from "./timer-bar";
-import { RoundResultOverlay }  from "./round-result-overlay";
+import { CodeEditor }         from "./code-editor";
+import { PromptCanvas }       from "./prompt-canvas";
+import { TimerBar }           from "./timer-bar";
+import { RoundResultOverlay } from "./round-result-overlay";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
 
 export function GameArena() {
     const { data: session } = useSession();
 
     const {
-        challenge,
-        submitAnswer,
-        sessionId,
-        currentRound,
-        totalRounds,
-        players,
+        challenge, submitAnswer,
+        sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
-    const [code, setCode]               = useState(challenge?.codeTemplate || "");
+    const [code, setCode]                 = useState(challenge?.codeTemplate || "");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    useEffect(() => {
+        setCode(challenge?.codeTemplate || "");
+        setIsSubmitting(false);
+    }, [challenge?.id]);
+
     const roundHistory = useGameStore((s) => s.roundHistory);
+    const config       = useGameStore((s) => s.config);
+
+    const isSingle = config?.playerFormat === "SINGLE";
 
     if (!challenge) return null;
 
@@ -43,7 +47,7 @@ export function GameArena() {
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
-    const lastEntry    = roundHistory[roundHistory.length - 1];
+    const lastEntry     = roundHistory[roundHistory.length - 1];
     const outputContent = lastEntry
         ? [
             `Verdict: ${lastEntry.verdict}`,
@@ -77,15 +81,18 @@ export function GameArena() {
                         </h1>
                     </div>
 
+                    {/* ✅ Score HUD: solo shows only YOU, dual shows YOU + OPP */}
                     <div className="flex gap-3">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
                             <span className="font-black text-lg font-mono text-accent">{myScore}</span>
                         </div>
-                        <div className="bg-destructive/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-destructive">Opp</span>
-                            <span className="font-black text-lg font-mono text-destructive">{oppScore}</span>
-                        </div>
+                        {!isSingle && (
+                            <div className="bg-destructive/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-destructive">Opp</span>
+                                <span className="font-black text-lg font-mono text-destructive">{oppScore}</span>
+                            </div>
+                        )}
                     </div>
                 </div>
 

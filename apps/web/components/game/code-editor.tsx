@@ -13,15 +13,22 @@ interface CodeEditorProps {
 export function CodeEditor({ language, code, onChange, readOnly = false }: CodeEditorProps) {
     const monacoRef = useRef<any>(null);
 
+    // ✅ Sync new codeTemplate into Monaco when round changes
+    useEffect(() => {
+        const editor = monacoRef.current;
+        if (editor && editor.getValue() !== code) {
+            editor.setValue(code);
+        }
+    }, [code]);
+
     const handleEditorDidMount = (editor: any, monaco: any) => {
         monacoRef.current = editor;
 
-        // Custom theme matching the PRD dark glassmorphism
         monaco.editor.defineTheme("logicforge-dark", {
             base: "vs-dark",
             inherit: true,
             rules: [
-                { background: "09090b" } // Matches strict dark background
+                { background: "09090b" }
             ],
             colors: {
                 "editor.background": "#09090b",

@@ -1,51 +1,81 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { useGameStore } from "@/store/game-store";
-import { Trophy, Swords, Medal } from "lucide-react";
+import { motion }        from "framer-motion";
+import { useSession }    from "next-auth/react";
+import { useGameStore }  from "@/store/game-store";
+import { useGameEngine } from "@/hooks/use-game-engine";
+import { Trophy, Swords, Medal, Star } from "lucide-react";
 
 const VERDICT_COLORS: Record<string, string> = {
-    CORRECT: "text-accent",
-    INCORRECT: "text-destructive",
-    TIMEOUT: "text-primary",
+    CORRECT:       "text-accent",
+    INCORRECT:     "text-destructive",
+    TIMEOUT:       "text-primary",
     COMPILE_ERROR: "text-destructive",
     RUNTIME_ERROR: "text-destructive",
-    PARTIAL: "text-primary",
-    PENDING: "text-muted-foreground",
+    PARTIAL:       "text-primary",
+    PENDING:       "text-muted-foreground",
 };
 
 export function ResultsScreen() {
-    const totalScore = useGameStore((s) => s.totalScore);
+    const { data: session } = useSession();
+    const { reset }         = useGameEngine();
+
+    const players      = useGameStore((s) => s.players);
     const roundHistory = useGameStore((s) => s.roundHistory);
-    const maxRounds = useGameStore((s) => s.maxRounds);
-    const opponentScore = useGameStore((s) => s.opponentScore);
+    const totalRounds  = useGameStore((s) => s.totalRounds);
+    const config       = useGameStore((s) => s.config);
 
-    const correctCount = roundHistory.filter((r) => r.verdict === "CORRECT").length;
+    const isSingle = config?.playerFormat === "SINGLE";
 
-    const isWin = totalScore > opponentScore;
-    const isDraw = totalScore === opponentScore;
+    const myUserId      = session?.user?.email ?? session?.user?.id ?? "";
+    const myPlayer      = players.find((p) => p.userId === myUserId);
+    const oppPlayer     = players.find((p) => p.userId !== myUserId);
+    const totalScore    = myPlayer?.score  ?? 0;
+    const opponentScore = oppPlayer?.score ?? 0;
+    const correctCount  = roundHistory.filter((r) => r.verdict === "CORRECT").length;
 
-    const OutcomeIcon = isWin ? Trophy : isDraw ? Medal : Swords;
-    const outcomeColor = isWin ? "text-primary" : isDraw ? "text-muted-foreground" : "text-destructive";
-    const outcomeBg = isWin ? "bg-primary" : isDraw ? "bg-card" : "bg-destructive";
-    const outcomeLabel = isWin ? "Victory!" : isDraw ? "Draw" : "Defeated";
-    const outcomeSub = isWin ? "You dominated the arena." : isDraw ? "Evenly matched." : "Better luck next round.";
+    // ── Outcome: solo uses score-based label, dual uses head-to-head compare
+    const isWin  = isSingle ? totalScore > 0 : totalScore > opponentScore;
+    const isDraw = !isSingle && totalScore === opponentScore;
+
+    const OutcomeIcon  = isSingle
+        ? (correctCount >= Math.ceil(totalRounds / 2) ? Trophy : Star)
+        : (isWin ? Trophy : isDraw ? Medal : Swords);
+
+    const outcomeColor = isWin  ? "text-primary"          : isDraw ? "text-muted-foreground" : "text-destructive";
+    const outcomeBg    = isWin  ? "bg-primary"            : isDraw ? "bg-card"               : "bg-destructive";
+    const outcomeLabel = isSingle
+        ? (correctCount === totalRounds ? "Perfect!" : correctCount >= Math.ceil(totalRounds / 2) ? "Well Done!" : "Keep Going!")
+        : (isWin ? "Victory!" : isDraw ? "Draw" : "Defeated");
+    const outcomeSub = isSingle
+        ? `${correctCount} of ${totalRounds} rounds correct — ${totalScore} pts`
+        : (isWin ? "You dominated the arena." : isDraw ? "Evenly matched." : "Better luck next round.");
+
+    // Stats row — hide opponent column in solo
+    const stats = isSingle
+        ? [
+            { label: "Total Score", value: totalScore,                    color: "bg-accent" },
+            { label: "Correct",     value: `${correctCount}/${totalRounds}`, color: "bg-primary" },
+            { label: "Accuracy",    value: `${Math.round((correctCount / totalRounds) * 100)}%`, color: "bg-card" },
+          ]
+        : [
+            { label: "Your Score", value: totalScore,                    color: "bg-accent" },
+            { label: "Correct",    value: `${correctCount}/${totalRounds}`, color: "bg-primary" },
+            { label: "Opponent",   value: opponentScore,                 color: "bg-destructive" },
+          ];
 
     return (
         <div className="flex-1 flex items-center justify-center px-6 py-16 lg:py-24">
             <div className="w-full max-w-2xl space-y-10">
+
                 {/* Outcome banner */}
-                <motion.div
-                    className="text-center space-y-6"
-                    initial={{ opacity: 0, y: -30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                >
+                <motion.div className="text-center space-y-6"
+                    initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}>
                     <motion.div
                         className={`${outcomeBg}/10 size-28 mx-auto border-2 border-foreground flex items-center justify-center shadow-retro-lg`}
                         animate={{ rotate: [0, 5, -5, 0] }}
-                        transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                    >
+                        transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}>
                         <OutcomeIcon className={`size-14 ${outcomeColor}`} />
                     </motion.div>
                     <h1 className={`text-6xl md:text-7xl font-black uppercase tracking-tighter ${outcomeColor}`}>
@@ -55,22 +85,12 @@ export function ResultsScreen() {
                 </motion.div>
 
                 {/* Score summary */}
-                <motion.div
-                    className="grid grid-cols-3 gap-4"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.15 }}
-                >
-                    {[
-                        { label: "Your Score", value: totalScore, color: "bg-accent", textColor: "text-foreground" },
-                        { label: "Correct", value: `${correctCount}/${maxRounds}`, color: "bg-primary", textColor: "text-foreground" },
-                        { label: "Opponent", value: opponentScore, color: "bg-destructive", textColor: "text-foreground" },
-                    ].map((stat) => (
-                        <div
-                            key={stat.label}
-                            className="border-2 border-foreground bg-card shadow-retro p-5 text-center"
-                        >
-                            <div className={`h-2 w-full ${stat.color} border-b-2 border-foreground -mt-5 -mx-0 mb-4`} style={{ margin: "-1.25rem -0px 1rem", width: "calc(100%)" }} />
+                <motion.div className="grid grid-cols-3 gap-4"
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: 0.15 }}>
+                    {stats.map((stat) => (
+                        <div key={stat.label} className="border-2 border-foreground bg-card shadow-retro p-5 text-center">
+                            <div className={`h-2 w-full ${stat.color} border-b-2 border-foreground -mt-5 mb-4`} />
                             <div className="text-3xl font-black">{stat.value}</div>
                             <div className="text-[10px] font-black uppercase tracking-widest mt-1 text-muted-foreground">
                                 {stat.label}
@@ -81,12 +101,9 @@ export function ResultsScreen() {
 
                 {/* Per-round breakdown */}
                 {roundHistory.length > 0 && (
-                    <motion.div
-                        className="border-2 border-foreground bg-card shadow-retro-lg overflow-hidden"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.6, delay: 0.3 }}
-                    >
+                    <motion.div className="border-2 border-foreground bg-card shadow-retro-lg overflow-hidden"
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.6, delay: 0.3 }}>
                         <div className="px-5 py-3 border-b-2 border-foreground bg-card">
                             <h2 className="text-xs font-black uppercase tracking-widest">Round Breakdown</h2>
                         </div>
@@ -100,7 +117,7 @@ export function ResultsScreen() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {roundHistory.map((r) => (
+                                {roundHistory.filter((r) => !r.userId || r.userId === myUserId).map((r) => (
                                     <tr key={r.roundNumber} className="border-t border-border hover:bg-muted/50 transition-colors">
                                         <td className="px-5 py-3 font-mono font-bold">#{r.roundNumber}</td>
                                         <td className={`px-5 py-3 font-black uppercase text-xs tracking-wider ${VERDICT_COLORS[r.verdict] ?? "text-muted-foreground"}`}>
@@ -109,9 +126,7 @@ export function ResultsScreen() {
                                         <td className="px-5 py-3 text-right font-mono text-muted-foreground">
                                             {r.executionTimeMs > 0 ? `${r.executionTimeMs}ms` : "—"}
                                         </td>
-                                        <td className="px-5 py-3 text-right font-black">
-                                            +{r.score}
-                                        </td>
+                                        <td className="px-5 py-3 text-right font-black">+{r.score}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -120,17 +135,14 @@ export function ResultsScreen() {
                 )}
 
                 {/* CTA */}
-                <motion.div
-                    className="flex gap-6 justify-center"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.5 }}
-                >
+                <motion.div className="flex gap-6 justify-center"
+                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: 0.5 }}>
                     <motion.button
                         className="arcade-btn bg-primary px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest"
                         whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
                         whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
-                        onClick={() => (window.location.href = "/arcade")}
+                        onClick={reset}
                     >
                         Play Again
                     </motion.button>

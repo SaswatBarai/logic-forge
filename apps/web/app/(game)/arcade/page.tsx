@@ -84,6 +84,12 @@ export default function ArcadeModePage() {
         enterQueue, joinSession, reset,
     } = useGameEngine();
 
+    useEffect(() => {
+    reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+
     // ── Auto-retry when stuck on "Connecting to arena" (MATCHED but no SESSION_JOINED) ──
     const retryCountRef = useRef(0);
     useEffect(() => {

@@ -49,11 +49,14 @@ export interface RoundResult {
 
 // ── Per-round history entry for results screen ────────────────────────────
 export interface RoundHistoryEntry {
-    roundNumber: number;
-    verdict: "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
-    score: number;
+    roundNumber:     number;
+    userId:          string;
+    verdict:         "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
+    score:           number;
     executionTimeMs: number;
 }
+
+
 
 interface GameState {
     connected: boolean;
@@ -219,28 +222,36 @@ export const useGameStore = create<GameState>()(
         }),
 
         applyRoundResult: (payload) => set((s) => {
+            const roundNum = payload.roundState.currentRound - 1 || s.currentRound;
+
+            // Deduplication guard — safe for both SINGLE and DUAL
+            const alreadyRecorded = s.roundHistory.some(
+                (r) => r.roundNumber === roundNum && r.userId === payload.userId
+            );
+            if (alreadyRecorded) return;
+
             s.players = payload.players;
             s.lastResult = {
-                userId: payload.userId,
-                challengeId: payload.challengeId,
-                passed: payload.passed,
-                points: payload.points,
-                verdict: payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT"),
+                userId:          payload.userId,
+                challengeId:     payload.challengeId,
+                passed:          payload.passed,
+                points:          payload.points,
+                verdict:         payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT"),
                 executionTimeMs: payload.executionTimeMs ?? 0,
             };
             s.showResultOverlay = true;
-            s.timeRemaining = null;
+            s.timeRemaining     = null;
 
             if (payload.livesRemaining !== undefined) {
                 s.myLives = payload.livesRemaining;
             }
 
-            // ── Accumulate round history for results screen ───────────────
             const verdict = (payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT")) as RoundHistoryEntry["verdict"];
             s.roundHistory.push({
-                roundNumber: payload.roundState.currentRound - 1 || s.currentRound,
+                roundNumber:     roundNum,
+                userId:          payload.userId,
                 verdict,
-                score: payload.points,
+                score:           payload.points,
                 executionTimeMs: payload.executionTimeMs ?? 0,
             });
 
@@ -248,6 +259,7 @@ export const useGameStore = create<GameState>()(
                 s.sessionStatus = "COMPLETED";
             }
         }),
+
 
         // ── TIMER_SYNC — server-driven countdown ──────────────────────────
         applyTimerSync: (payload) => set((s) => {
