@@ -18,8 +18,8 @@ const QUESTION_ENGINE_URL =
 // ── Category map: types short names → question-engine/DB enum ────────────
 const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
     "MISSING_LINK": "THE_MISSING_LINK",
-    "BOTTLENECK":   "THE_BOTTLENECK_BREAKER",
-    "TRACING":      "STATE_TRACING",
+    "BOTTLENECK": "THE_BOTTLENECK_BREAKER",
+    "TRACING": "STATE_TRACING",
     "SYNTAX_ERROR": "SYNTAX_ERROR_DETECTION",
 };
 
@@ -33,84 +33,78 @@ function pickLanguage(): ArcadeLanguage {
 
 // ── Per-session round state ───────────────────────────────────────────────
 export interface RoundState {
-    sessionId:        string;
-    currentRound:     number;
-    livesRemaining:   number;
-    categoryHistory:  BlitzCategory[];
+    sessionId: string;
+    currentRound: number;
+    livesRemaining: number;
+    categoryHistory: BlitzCategory[];
     usedChallengeIds: string[];          // prevent duplicate challenges
-    isTerminated:     boolean;
+    isTerminated: boolean;
     terminationCause?: "LIVES_EXHAUSTED" | "COMPLETED";
+    submittedUserIds: Set<string>;       // tracks who submitted this round (reset each round)
 }
 
 // ── Matches ChallengeResponseSchema from @logicforge/types ───────────────
 interface ChallengeApiResponse {
-    id:           string;
-    title:        string;
-    description:  string;
+    id: string;
+    title: string;
+    description: string;
     codeTemplate: string;
-    hints:        unknown;
-    timeLimitMs:  number;
-    category:     string;
-    language:     string;
-    difficulty:   string;
+    hints: unknown;
+    timeLimitMs: number;
+    category: string;
+    language: string;
+    difficulty: string;
 }
 
 // ── Shape sent in ROUND_START — matches RoundStartPayload on frontend ─────
 export interface RoundChallenge {
-    id:           string;
-    title:        string;
-    description:  string;
+    id: string;
+    title: string;
+    description: string;
     codeTemplate: string;
-    hints:        unknown;
-    timeLimitMs:  number;
-}
-
-export interface RoundState {
-    sessionId:        string;
-    currentRound:     number;
-    livesRemaining:   number;
-    categoryHistory:  BlitzCategory[];
-    usedChallengeIds: string[];
-    isTerminated:     boolean;
-    terminationCause?: "LIVES_EXHAUSTED" | "COMPLETED";
+    hints: unknown;
+    timeLimitMs: number | null;
 }
 
 export interface EvaluateAnswerResult {
-    userId:          string;
-    challengeId:     string;
-    passed:          boolean;
-    points:          number;
+    userId: string;
+    challengeId: string;
+    passed: boolean;
+    points: number;
     livesRemaining?: number;
     roundState: {
-        currentRound:      number;
-        isTerminated:      boolean;
+        currentRound: number;
+        isTerminated: boolean;
         terminationCause?: string;
     };
     players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
 }
 
 export interface PrepareNextRoundPayload {
-    roundNumber: number;         // ← renamed to match RoundStartPayload frontend type
+    roundNumber: number;
     totalRounds: number;
-    challenge:   RoundChallenge;
-    players:     Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
+    challenge: RoundChallenge;
+    players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
 }
 
-// In-memory store
+// ── In-memory stores ──────────────────────────────────────────────────────
 const roundStates = new Map<string, RoundState>();
+// sessionId → active countdown interval handle
+const roundTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 export class RoundService {
 
-    constructor(private readonly sessionService: SessionService) {}
+    constructor(private readonly sessionService: SessionService) { }
 
     initSession(sessionId: string, config: BlitzSessionConfig): RoundState {
         const state: RoundState = {
             sessionId,
-            currentRound:     1,
-            livesRemaining:   config.livesEnabled ? config.lives : (Infinity as any),
-            categoryHistory:  [],
+            currentRound: 1,
+            livesRemaining: config.livesEnabled ? config.lives : (Infinity as any),
+            categoryHistory: [],
             usedChallengeIds: [],
-            isTerminated:     false,
+            isTerminated: false,
+            submittedUserIds: new Set<string>(),
         };
         roundStates.set(sessionId, state);
         logger.info({ sessionId }, "Round state initialized");
@@ -126,14 +120,14 @@ export class RoundService {
     // ── Fetch challenge from question-engine ──────────────────────────────
     async fetchChallenge(
         sessionId: string,
-        config:    BlitzSessionConfig
+        config: BlitzSessionConfig
     ): Promise<RoundChallenge> {
-        const state    = this.getState(sessionId);
+        const state = this.getState(sessionId);
         const category = this.resolveCategory(state, config);
 
         // ── Map short name → DB enum before calling QE ────────────────────
         const qeCategory = CATEGORY_TO_QE[category];
-        const language   = pickLanguage();
+        const language = pickLanguage();
 
         const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
         url.searchParams.set("category", qeCategory);
@@ -162,21 +156,23 @@ export class RoundService {
             "Challenge fetched"
         );
 
+        const timeLimitMs = this.resolveTimeLimit(config.sessionType, state.currentRound);
+
         return {
-            id:           data.id,
-            title:        data.title,
-            description:  data.description,
+            id: data.id,
+            title: data.title,
+            description: data.description,
             codeTemplate: data.codeTemplate,
-            hints:        data.hints ?? null,
-            timeLimitMs:  this.resolveTimeLimit(config.sessionType, state.currentRound),
+            hints: data.hints ?? null,
+            timeLimitMs,
         };
     }
 
     // ── Record result and advance round state ─────────────────────────────
     recordResult(
         sessionId: string,
-        config:    BlitzSessionConfig,
-        passed:    boolean
+        config: BlitzSessionConfig,
+        passed: boolean
     ): RoundState {
         const state = this.getState(sessionId);
 
@@ -186,13 +182,13 @@ export class RoundService {
         }
 
         if (config.livesEnabled && state.livesRemaining <= 0) {
-            state.isTerminated     = true;
+            state.isTerminated = true;
             state.terminationCause = "LIVES_EXHAUSTED";
             return state;
         }
 
         if (state.currentRound >= TOTAL_ROUNDS) {
-            state.isTerminated     = true;
+            state.isTerminated = true;
             state.terminationCause = "COMPLETED";
             return state;
         }
@@ -203,10 +199,10 @@ export class RoundService {
 
     // ── Evaluate a submission ─────────────────────────────────────────────
     async evaluateAnswer(args: {
-        sessionId:   string;
-        userId:      string;
+        sessionId: string;
+        userId: string;
         challengeId: string;
-        answer:      string;
+        answer: string;
     }): Promise<EvaluateAnswerResult> {
         const { sessionId, userId, challengeId, answer } = args;
         const session = await this.sessionService.getSession(sessionId);
@@ -235,8 +231,8 @@ export class RoundService {
             points,
             livesRemaining: config.livesEnabled ? player?.livesRemaining : undefined,
             roundState: {
-                currentRound:     state.currentRound,
-                isTerminated:     state.isTerminated,
+                currentRound: state.currentRound,
+                isTerminated: state.isTerminated,
                 terminationCause: state.terminationCause,
             },
             players: serialized.players,
@@ -254,7 +250,10 @@ export class RoundService {
             state = this.initSession(sessionId, config);
         }
 
-        const challenge  = await this.fetchChallenge(sessionId, config);
+        // Reset submitted players for the new round
+        state.submittedUserIds = new Set<string>();
+
+        const challenge = await this.fetchChallenge(sessionId, config);
         const serialized = await this.sessionService.serialize(session);
 
         return {
@@ -267,10 +266,123 @@ export class RoundService {
 
     /** Emit ROUND_START to session room; used by socket handler when all players joined / ready. */
     async startRound(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
+        // Clear any existing timer for this session (safety: don't double-start)
+        this.clearRoundTimer(sessionId);
+
         const payload = await this.prepareNextRound(sessionId);
         io.to(sessionId).emit("ROUND_START", payload);
         await this.sessionService.updateSession(sessionId, { currentRound: roundNumber, status: "ACTIVE" });
         logger.info({ sessionId, roundNumber }, "ROUND_START emitted");
+
+        // ── Start countdown only for TIMER mode ───────────────────────────
+        if (payload.challenge.timeLimitMs != null) {
+            this.startRoundTimer(io, sessionId, roundNumber, payload.challenge.timeLimitMs);
+        }
+    }
+
+    // ── Timer countdown — emits TIMER_SYNC every 1 s ──────────────────────
+    private startRoundTimer(
+        io: SocketServer,
+        sessionId: string,
+        roundNumber: number,
+        timeLimitMs: number
+    ): void {
+        const startAt = Date.now();
+        const endAt = startAt + timeLimitMs;
+
+        logger.info({ sessionId, roundNumber, timeLimitMs }, "Round timer started");
+
+        const handle = setInterval(async () => {
+            const now = Date.now();
+            const remainingMs = Math.max(0, endAt - now);
+
+            io.to(sessionId).emit("TIMER_SYNC", {
+                roundNumber,
+                remainingMs,
+                serverTimestamp: now,
+            });
+
+            if (remainingMs <= 0) {
+                this.clearRoundTimer(sessionId);
+                logger.info({ sessionId, roundNumber }, "Round timer expired — auto-submitting");
+                await this.handleTimerExpiry(io, sessionId, roundNumber);
+            }
+        }, 1_000);
+
+        roundTimers.set(sessionId, handle);
+    }
+
+    /** When time runs out, auto-fail every player who hasn't submitted yet. */
+    private async handleTimerExpiry(
+        io: SocketServer,
+        sessionId: string,
+        roundNumber: number
+    ): Promise<void> {
+        const session = await this.sessionService.getSession(sessionId);
+        if (!session) return;
+
+        const state = roundStates.get(sessionId);
+        if (!state) return;
+
+        // Find players who haven't submitted this round
+        const pending = session.players.filter((uid) => !state.submittedUserIds.has(uid));
+
+        if (pending.length === 0) {
+            // All submitted already — nothing to do, handleSubmission already moved us forward
+            logger.info({ sessionId, roundNumber }, "Timer expired but all players already submitted");
+            return;
+        }
+
+        // Emit TIMER_EXPIRED so the client can show a toast / flash
+        io.to(sessionId).emit("TIMER_EXPIRED", { roundNumber });
+
+        // Auto-submit with empty answer for each pending player
+        const state2 = roundStates.get(sessionId);
+        if (!state2) return;
+        const challengeId = state2.usedChallengeIds[roundNumber - 1] ?? state2.usedChallengeIds[state2.usedChallengeIds.length - 1];
+
+        for (const userId of pending) {
+            try {
+                state.submittedUserIds.add(userId); // prevent double-processing
+                const result = await this.evaluateAnswer({
+                    sessionId,
+                    userId,
+                    challengeId,
+                    answer: "", // blank = fail
+                });
+
+                io.to(sessionId).emit("ROUND_RESULT", result);
+                logger.info({ sessionId, userId, roundNumber }, "Auto-submitted (timer expired)");
+
+                // Only process round transition after ALL pending players evaluated
+                // Use the last player's result to decide next step
+                const isLastPending = userId === pending[pending.length - 1];
+                if (isLastPending) {
+                    if (result.roundState.isTerminated) {
+                        io.to(sessionId).emit("SESSION_END", {
+                            reason: result.roundState.terminationCause ?? "COMPLETED",
+                            players: result.players,
+                        });
+                        this.cleanup(sessionId);
+                        logger.info({ sessionId }, "Session ended after timer expiry");
+                    } else {
+                        await this.startRound(io, sessionId, result.roundState.currentRound);
+                    }
+                }
+            } catch (err) {
+                logger.error({ err, sessionId, userId }, "Error auto-submitting on timer expiry");
+            }
+        }
+    }
+
+    /** Clear the countdown interval for a session. */
+    private clearRoundTimer(sessionId: string): void {
+        const handle = roundTimers.get(sessionId);
+        if (handle) {
+            clearInterval(handle);
+            roundTimers.delete(sessionId);
+            logger.info({ sessionId }, "Round timer cleared");
+        }
     }
 
     /** Handle SUBMIT_ANSWER: evaluate, emit ROUND_RESULT; if terminated emit SESSION_END and cleanup, else start next round. */
@@ -282,22 +394,43 @@ export class RoundService {
         roundNumber: number
     ): Promise<void> {
         const state = this.getState(sessionId);
+
+        // Guard: ignore duplicate submissions from the same player this round
+        if (state.submittedUserIds.has(userId)) {
+            logger.warn({ sessionId, userId, roundNumber }, "Duplicate SUBMIT_ANSWER ignored");
+            return;
+        }
+        state.submittedUserIds.add(userId);
+
         const challengeId = state.usedChallengeIds[roundNumber - 1] ?? state.usedChallengeIds[state.usedChallengeIds.length - 1];
         const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
         io.to(sessionId).emit("ROUND_RESULT", result);
-        if (result.roundState.isTerminated) {
-            io.to(sessionId).emit("SESSION_END", {
-                reason: result.roundState.terminationCause ?? "COMPLETED",
-                players: result.players,
-            });
-            this.cleanup(sessionId);
-            logger.info({ sessionId }, "Session ended");
-        } else {
-            await this.startRound(io, sessionId, result.roundState.currentRound);
+
+        // Get the session to know total player count
+        const session = await this.sessionService.getSession(sessionId);
+        const totalPlayers = session?.players.length ?? 1;
+        const allSubmitted = state.submittedUserIds.size >= totalPlayers;
+
+        if (allSubmitted) {
+            // All players submitted — no need to wait for timer
+            this.clearRoundTimer(sessionId);
+
+            if (result.roundState.isTerminated) {
+                io.to(sessionId).emit("SESSION_END", {
+                    reason: result.roundState.terminationCause ?? "COMPLETED",
+                    players: result.players,
+                });
+                this.cleanup(sessionId);
+                logger.info({ sessionId }, "Session ended");
+            } else {
+                await this.startRound(io, sessionId, result.roundState.currentRound);
+            }
         }
+        // else: wait for other player(s) or timer expiry
     }
 
     cleanup(sessionId: string): void {
+        this.clearRoundTimer(sessionId);
         roundStates.delete(sessionId);
     }
 
@@ -311,10 +444,16 @@ export class RoundService {
         return pool[Math.floor(Math.random() * pool.length)];
     }
 
-    private resolveTimeLimit(sessionType: BlitzSessionConfig["sessionType"], round: number): number {
+    /**
+     * Returns the time limit for a round in milliseconds.
+     * Timer mode: starts at 60s, decreases 5s per round, min 20s.
+     * Live mode: null (no countdown).
+     */
+    private resolveTimeLimit(sessionType: BlitzSessionConfig["sessionType"], round: number): number | null {
         if (sessionType === "TIMER") {
             return Math.max(20_000, 60_000 - (round - 1) * 5_000);
         }
-        return 45_000;
+        // Live mode — no timer
+        return null;
     }
 }

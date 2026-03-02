@@ -135,6 +135,13 @@ export function useGameEngine() {
         socket.on("SESSION_ABORTED", (p: SessionAbortedPayload) => applySessionAborted(p));
         socket.on("ERROR", (p: { message: string }) => console.error("[WS] Error:", p.message));
 
+        // Timer expired — server auto-submitted; set remaining to 0 so the
+        // TimerBar immediately flips to 0 before the next ROUND_START arrives.
+        socket.on("TIMER_EXPIRED", (p: { roundNumber: number }) => {
+            console.warn("[WS] TIMER_EXPIRED for round", p.roundNumber);
+            applyTimerSync({ roundNumber: p.roundNumber, remainingMs: 0, serverTimestamp: Date.now() });
+        });
+
         return () => {
             socket.off("connect", onConnect);
             socket.off("disconnect", onDisconnect);
@@ -147,6 +154,7 @@ export function useGameEngine() {
             socket.off("ROUND_START");
             socket.off("ROUND_RESULT");
             socket.off("TIMER_SYNC");
+            socket.off("TIMER_EXPIRED");
             socket.off("SESSION_END");
             socket.off("SESSION_ABORTED");
             socket.off("ERROR");

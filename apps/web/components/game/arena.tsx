@@ -4,12 +4,12 @@ import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { useGameStore }  from "@/store/game-store";
-import { CodeEditor }          from "./code-editor";
-import { PromptCanvas }        from "./prompt-canvas";
-import { TimerBar }            from "./timer-bar";
-import { RoundResultOverlay }  from "./round-result-overlay";
-import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
+import { useGameStore } from "@/store/game-store";
+import { CodeEditor } from "./code-editor";
+import { PromptCanvas } from "./prompt-canvas";
+import { TimerBar } from "./timer-bar";
+import { RoundResultOverlay } from "./round-result-overlay";
+import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Heart } from "lucide-react";
 
 export function GameArena() {
     const { data: session } = useSession();
@@ -21,9 +21,14 @@ export function GameArena() {
         currentRound,
         totalRounds,
         players,
+        myLives,
+        config,
     } = useGameEngine();
 
-    const [code, setCode]               = useState(challenge?.codeTemplate || "");
+    const isLiveMode = config?.sessionType === "LIVE";
+    const isTimerMode = config?.sessionType === "TIMER";
+
+    const [code, setCode] = useState(challenge?.codeTemplate || "");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const roundHistory = useGameStore((s) => s.roundHistory);
@@ -40,11 +45,11 @@ export function GameArena() {
         );
     }
 
-    const myUserId  = session?.user?.email ?? session?.user?.id ?? "";
-    const myPlayer  = players.find((p) => p.userId === myUserId);
+    const myUserId = session?.user?.email ?? session?.user?.id ?? "";
+    const myPlayer = players.find((p) => p.userId === myUserId);
     const oppPlayer = players.find((p) => p.userId !== myUserId);
-    const myScore   = myPlayer?.score  ?? 0;
-    const oppScore  = oppPlayer?.score ?? 0;
+    const myScore = myPlayer?.score ?? 0;
+    const oppScore = oppPlayer?.score ?? 0;
 
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id) return;
@@ -53,13 +58,13 @@ export function GameArena() {
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
-    const lastEntry    = roundHistory[roundHistory.length - 1];
+    const lastEntry = roundHistory[roundHistory.length - 1];
     const outputContent = lastEntry
         ? [
             `Verdict: ${lastEntry.verdict}`,
             `Score: +${lastEntry.score} pts`,
             lastEntry.executionTimeMs > 0 ? `Execution time: ${lastEntry.executionTimeMs}ms` : null,
-          ].filter(Boolean).join("\n")
+        ].filter(Boolean).join("\n")
         : null;
 
     return (
@@ -87,15 +92,35 @@ export function GameArena() {
                         </h1>
                     </div>
 
-                    <div className="flex gap-3">
+                    {/* Right side: score + lives (Live Mode) */}
+                    <div className="flex gap-3 items-center">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
                             <span className="font-black text-lg font-mono text-accent">{myScore}</span>
                         </div>
-                        <div className="bg-destructive/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-destructive">Opp</span>
-                            <span className="font-black text-lg font-mono text-destructive">{oppScore}</span>
-                        </div>
+                        {players.length > 1 && (
+                            <div className="bg-destructive/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-destructive">Opp</span>
+                                <span className="font-black text-lg font-mono text-destructive">{oppScore}</span>
+                            </div>
+                        )}
+                        {/* Lives display — only for Live Mode */}
+                        {isLiveMode && (
+                            <div className="px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center bg-card">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Lives</span>
+                                <div className="flex gap-0.5 mt-0.5">
+                                    {Array.from({ length: 3 }).map((_, i) => (
+                                        <Heart
+                                            key={i}
+                                            className={`h-4 w-4 transition-colors ${i < myLives
+                                                    ? "text-red-500 fill-red-500"
+                                                    : "text-slate-600 fill-slate-800"
+                                                }`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
