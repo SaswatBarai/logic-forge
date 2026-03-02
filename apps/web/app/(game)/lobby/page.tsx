@@ -2,16 +2,12 @@
 
 import { motion } from "framer-motion";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { useGameStore }  from "@/store/game-store";
-import { Loader2, Swords } from "lucide-react";
+import { Loader2, Swords, CheckCircle2 } from "lucide-react";
 
 export function MatchLobby() {
-    // ── Pull what actually exists in the hook + store ─────────────────────
-    const { sessionStatus, matchStatus } = useGameEngine();
-    const players = useGameStore((s) => s.players);
+    const { sessionStatus, sessionId } = useGameEngine();
 
-    const isMatched  = matchStatus === "MATCHED";
-    const isSearching = matchStatus === "QUEUED";
+    if (sessionStatus === "ACTIVE") return null;
 
     return (
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 lg:py-24 max-w-7xl mx-auto w-full">
@@ -21,7 +17,7 @@ export function MatchLobby() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
             >
-                {/* Icon */}
+                {/* Animated icon */}
                 <motion.div
                     className="bg-primary/10 size-28 border-2 border-foreground flex items-center justify-center shadow-retro-lg"
                     animate={{ rotate: [0, 5, -5, 0] }}
@@ -33,36 +29,19 @@ export function MatchLobby() {
                 {/* Title */}
                 <div className="text-center space-y-3">
                     <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter">
-                        {isMatched ? "Opponent Found" : "Searching Arena"}
+                        {sessionId ? "Opponent Found" : "Searching Arena"}
                     </h2>
                     <div className="border-2 border-foreground p-4 bg-card shadow-retro max-w-md mx-auto">
                         <p className="text-sm font-medium leading-relaxed">
-                            {isMatched
-                                ? "Arena context loaded. Round 1 begins shortly — get ready."
-                                : "Scanning the matchmaker queue…"}
+                            {sessionId
+                                ? "Preparing arena context. The duel is about to begin — get ready."
+                                : "Scanning the matchmaker queue for opponents of similar skill level…"}
                         </p>
                     </div>
                 </div>
 
-                {/* Players */}
-                {players.length > 0 && (
-                    <div className="flex gap-4">
-                        {players.map((p) => (
-                            <div
-                                key={p.userId}
-                                className="border-2 border-foreground bg-card px-5 py-3 text-center shadow-retro-sm"
-                            >
-                                <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
-                                    Player
-                                </p>
-                                <p className="font-black text-sm mt-1 truncate max-w-[120px]">{p.userId}</p>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Searching indicator */}
-                {isSearching && (
+                {/* Searching pulse */}
+                {!sessionId && (
                     <motion.div
                         className="flex items-center gap-3 px-5 py-3 border-2 border-foreground bg-card shadow-retro-sm"
                         animate={{ opacity: [1, 0.6, 1] }}
@@ -75,17 +54,16 @@ export function MatchLobby() {
                     </motion.div>
                 )}
 
-                {/* Matched — auto-starts, no ready-up needed */}
-                {isMatched && sessionStatus === "LOBBY" && (
+                {/* Matched — waiting for ROUND_START to auto-transition */}
+                {sessionId && (
                     <motion.div
-                        className="flex items-center gap-3 px-5 py-3 border-2 border-primary bg-primary/10 shadow-retro-sm"
-                        animate={{ opacity: [1, 0.6, 1] }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
+                        className="arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 bg-accent text-accent-foreground"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4 }}
                     >
-                        <Loader2 className="size-4 animate-spin text-primary" />
-                        <span className="text-xs font-black uppercase tracking-widest text-primary">
-                            Loading Round 1…
-                        </span>
+                        <CheckCircle2 className="size-5" />
+                        Session Ready — Starting…
                     </motion.div>
                 )}
             </motion.div>

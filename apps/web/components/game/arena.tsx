@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
 import { useGameStore }  from "@/store/game-store";
-import { CodeEditor }           from "./code-editor";
-import { PromptCanvas }         from "./prompt-canvas";
-import { TimerBar }             from "./timer-bar";
-import { RoundResultOverlay }   from "./round-result-overlay";
+import { CodeEditor }          from "./code-editor";
+import { PromptCanvas }        from "./prompt-canvas";
+import { TimerBar }            from "./timer-bar";
+import { RoundResultOverlay }  from "./round-result-overlay";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
-import { useSession } from "next-auth/react";
 
 export function GameArena() {
     const { data: session } = useSession();
@@ -21,22 +21,20 @@ export function GameArena() {
         currentRound,
         totalRounds,
         players,
-        lastResult,
     } = useGameEngine();
 
-    const [code, setCode] = useState(challenge?.codeTemplate || "");
+    const [code, setCode]               = useState(challenge?.codeTemplate || "");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const roundHistory = useGameStore((s) => s.roundHistory);
 
     if (!challenge) return null;
 
-    // ── Derive scores from players array ─────────────────────────────────
-    const myUserId    = session?.user?.email ?? session?.user?.id ?? "";
-    const myPlayer    = players.find((p) => p.userId === myUserId);
-    const oppPlayer   = players.find((p) => p.userId !== myUserId);
-    const myScore     = myPlayer?.score  ?? 0;
-    const oppScore    = oppPlayer?.score ?? 0;
+    const myUserId  = session?.user?.email ?? session?.user?.id ?? "";
+    const myPlayer  = players.find((p) => p.userId === myUserId);
+    const oppPlayer = players.find((p) => p.userId !== myUserId);
+    const myScore   = myPlayer?.score  ?? 0;
+    const oppScore  = oppPlayer?.score ?? 0;
 
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id) return;
@@ -45,15 +43,12 @@ export function GameArena() {
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
-    // ── Output panel content ──────────────────────────────────────────────
-    const lastEntry = roundHistory[roundHistory.length - 1];
+    const lastEntry    = roundHistory[roundHistory.length - 1];
     const outputContent = lastEntry
         ? [
             `Verdict: ${lastEntry.verdict}`,
             `Score: +${lastEntry.score} pts`,
-            lastEntry.executionTimeMs > 0
-                ? `Execution time: ${lastEntry.executionTimeMs}ms`
-                : null,
+            lastEntry.executionTimeMs > 0 ? `Execution time: ${lastEntry.executionTimeMs}ms` : null,
           ].filter(Boolean).join("\n")
         : null;
 
@@ -82,7 +77,6 @@ export function GameArena() {
                         </h1>
                     </div>
 
-                    {/* ── Score HUD ── */}
                     <div className="flex gap-3">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
@@ -107,10 +101,7 @@ export function GameArena() {
                                     Secure Brief (Canvas)
                                 </span>
                             </div>
-                            <PromptCanvas
-                                title={challenge.title}
-                                description={challenge.description}
-                            />
+                            <PromptCanvas title={challenge.title} description={challenge.description} />
                         </div>
                     </ResizablePanel>
 
