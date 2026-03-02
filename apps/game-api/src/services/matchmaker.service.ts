@@ -1,103 +1,157 @@
-import { getRedisClient } from "@logicforge/config";
-import { db } from "@logicforge/db";
+import { randomUUID } from "crypto";
+import type { Server as SocketServer } from "socket.io";
 import { logger } from "../app";
-import { GameMode, PlayerFormat, MatchFoundPayload } from "@logicforge/types";
-import { broadcastToSession, userSockets } from "../websocket/socket.manager";
-import { WebSocket } from "ws";
+import {
+    CreateSessionPayload,
+    WaitingRoomEntry,
+    BlitzSessionConfig,
+    LIVE_MODE_INITIAL_LIVES,
+    TOTAL_ROUNDS,
+    TimerCategory,
+} from "@logicforge/types";
+import { SessionService } from "./session.service";
 
-// Redis key for matchmaking queues
-const MATCHMAKER_QUEUE = "matchmaker:queue";
+const dualWaitingRoom = new Map<string, WaitingRoomEntry>();
+const QUEUE_TTL_MS = 60_000;
 
-/**
- * Enqueue user and try to find a match.
- */
-export async function findOrQueueMatch(userId: string) {
-    const redis = await getRedisClient();
-
-    // Try to pop an opponent (sPop returns string | string[] | null depending on overload)
-    const popped = await redis.sPop(MATCHMAKER_QUEUE);
-    const opponentId = Array.isArray(popped) ? popped[0] ?? null : popped;
-
-    if (!opponentId) {
-        // Nobody waiting, enqueue self
-        logger.debug({ userId }, "No opponent found. Entering matchmaker queue.");
-        await redis.sAdd(MATCHMAKER_QUEUE, userId);
-        return { status: "QUEUED" };
-    }
-
-    if (opponentId === userId) {
-        // Safeguard
-        await redis.sAdd(MATCHMAKER_QUEUE, userId);
-        return { status: "QUEUED" };
-    }
-
-    // Found match! Create the session
-    logger.info({ p1: userId, p2: opponentId }, "Match found. Creating DualMatch.");
-
-    try {
-        // Create a shared GameSession for both players
-        const session = await db.gameSession.create({
-            data: {
-                userId,
-                mode: "ARCADE",
-                playerFormat: "DUAL",
-                status: "LOBBY",
-            }
-        });
-
-        // Create DualMatch linking two GameSession references
-        // player1 and player2 point to GameSession IDs, so we create
-        // lightweight per-player sessions to satisfy FK constraints
-        const p1Session = await db.gameSession.create({
-            data: {
-                userId: opponentId,
-                mode: "ARCADE",
-                playerFormat: "DUAL",
-                status: "LOBBY",
-            }
-        });
-
-        await db.dualMatch.create({
-            data: {
-                player1Id: p1Session.id,
-                player2Id: session.id,
-                status: "MATCHED",
-            }
-        });
-
-        // Notify the queued player (opponentId) via WebSocket about the match
-        const opponentSocket = userSockets.get(opponentId);
-        if (opponentSocket && opponentSocket.readyState === WebSocket.OPEN) {
-            const matchMsg: MatchFoundPayload = {
-                type: "MATCH_FOUND",
-                opponentId: userId,
-                sessionId: session.id,
-            };
-            opponentSocket.send(JSON.stringify(matchMsg));
-            logger.info({ opponentId, sessionId: session.id }, "Sent MATCH_FOUND to queued player");
-        } else {
-            logger.warn({ opponentId }, "Queued player has no active WebSocket — cannot notify");
-        }
-
-        return {
-            status: "MATCHED",
-            sessionId: session.id,
-            opponentId
-        };
-
-    } catch (err: any) {
-        logger.error({ err, p1: userId, p2: opponentId }, "Failed to create match");
-        // Rescue queue state by returning the opponent
-        await redis.sAdd(MATCHMAKER_QUEUE, opponentId);
-        return { status: "ERROR" };
-    }
+function buildWaitingRoomKey(payload: CreateSessionPayload): string {
+    const categorySegment =
+        payload.sessionType === "TIMER" ? payload.category! : "LIVE";
+    return `${payload.sessionType}:${categorySegment}`;
 }
 
-/**
- * Stop waiting if the user cancels or disconnects
- */
-export async function dequeueMatch(userId: string) {
-    const redis = await getRedisClient();
-    await redis.sRem(MATCHMAKER_QUEUE, userId);
-    logger.debug({ userId }, "Dequeued from matchmaker");
+function buildBlitzConfig(payload: CreateSessionPayload): BlitzSessionConfig {
+    const isLive = payload.sessionType === "LIVE";
+    return {
+        playerFormat: payload.playerFormat,
+        sessionType: payload.sessionType,
+        category: isLive ? null : (payload.category as TimerCategory),
+        livesEnabled: isLive,
+        lives: isLive
+            ? Number(process.env.LIVE_MODE_LIVES) || LIVE_MODE_INITIAL_LIVES
+            : 0,
+        totalRounds: TOTAL_ROUNDS,
+    };
+}
+
+export type MatchResult =
+    | { status: "QUEUED"; queueKey: string }
+    | { status: "MATCHED"; sessionId: string };
+
+export class MatchmakerService {
+    constructor(
+        private readonly sessionService: SessionService,
+        private readonly io: SocketServer   // ✅ was missing — io was silently dropped before
+    ) {}
+
+    async findOrCreateSession(
+        payload: CreateSessionPayload
+    ): Promise<MatchResult> {
+        if (payload.sessionType === "TIMER" && !payload.category) {
+            throw new Error("Timer Mode requires a category.");
+        }
+        if (payload.playerFormat === "SINGLE") {
+            return this.createSinglePlayerSession(payload);
+        }
+        return this.matchDualPlayer(payload);
+    }
+
+    private async createSinglePlayerSession(
+        payload: CreateSessionPayload
+    ): Promise<MatchResult> {
+        const config = buildBlitzConfig(payload);
+        const sessionId = randomUUID();
+        await this.sessionService.createSession(sessionId, config, [
+            payload.userId,
+        ]);
+        logger.info(
+            { sessionId, userId: payload.userId },
+            "Single player session created"
+        );
+        return { status: "MATCHED", sessionId };
+    }
+
+    private async matchDualPlayer(
+        payload: CreateSessionPayload
+    ): Promise<MatchResult> {
+        const key = buildWaitingRoomKey(payload);
+        const now = Date.now();
+
+        // Evict stale entry
+        const existing = dualWaitingRoom.get(key);
+        if (existing && now - existing.queuedAt > QUEUE_TTL_MS) {
+            logger.warn(
+                { key, staleUserId: existing.userId },
+                "Evicting stale queue entry"
+            );
+            dualWaitingRoom.delete(key);
+        }
+
+        const opponent = dualWaitingRoom.get(key);
+
+        if (opponent && opponent.userId !== payload.userId) {
+            // ── MATCH FOUND ──────────────────────────────────────────────
+            dualWaitingRoom.delete(key);
+
+            const config = buildBlitzConfig(payload);
+            const sessionId = randomUUID();
+            await this.sessionService.createSession(sessionId, config, [
+                opponent.userId,
+                payload.userId,
+            ]);
+
+            logger.info(
+                { sessionId, players: [opponent.userId, payload.userId] },
+                "Dual session matched"
+            );
+
+            // Notify the WAITING (first) player via socket
+            let opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
+            if (!opponentSocketId) {
+                await new Promise((r) => setTimeout(r, 150));
+                opponentSocketId = await this.sessionService.getSocketId(opponent.userId);
+            }
+            if (opponentSocketId) {
+                this.io.to(opponentSocketId).emit("MATCHED", {
+                    status: "MATCHED",
+                    sessionId,
+                });
+                logger.info(
+                    { userId: opponent.userId, sessionId },
+                    "Emitted MATCHED to waiting player via socket"
+                );
+            } else {
+                logger.warn(
+                    { userId: opponent.userId },
+                    "Waiting player socket not found — ensure they connected and sent IDENTIFY before queuing"
+                );
+            }
+
+            // Player 2 gets MATCHED via HTTP response (handled by route)
+            return { status: "MATCHED", sessionId };
+        }
+
+        // Same user already in queue (e.g. two tabs) — overwrite so they don't match themselves
+        if (existing?.userId === payload.userId) {
+            logger.info({ key, userId: payload.userId }, "Same user re-queued; use two browsers/accounts for 1v1");
+        }
+
+        dualWaitingRoom.set(key, {
+            userId: payload.userId,
+            payload,
+            queuedAt: now,
+        });
+        logger.info({ key, userId: payload.userId }, "Player queued for Dual Mode");
+        return { status: "QUEUED", queueKey: key };
+    }
+
+    cancelQueue(userId: string): void {
+        for (const [key, entry] of dualWaitingRoom.entries()) {
+            if (entry.userId === userId) {
+                dualWaitingRoom.delete(key);
+                logger.info({ key, userId }, "Queue entry cancelled");
+                return;
+            }
+        }
+    }
 }

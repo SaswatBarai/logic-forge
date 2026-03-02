@@ -1,269 +1,257 @@
-import { create } from "zustand";
-import { WsClientMessage, WsServerMessage } from "@logicforge/types";
+// apps/web/store/game-store.ts
 
-const MAX_RECONNECT_ATTEMPTS = 10;
-const BASE_RECONNECT_DELAY_MS = 1000;
-const MAX_RECONNECT_DELAY_MS = 30000;
+import { create } from "zustand";
+import { immer } from "zustand/middleware/immer";
+
+export type SessionStatus = "IDLE" | "LOBBY" | "ACTIVE" | "COMPLETED" | "ABORTED";
+export type PlayerFormat  = "SINGLE" | "DUAL";
+export type SessionType   = "TIMER" | "LIVE";
+export type BlitzCategory =
+    | "MISSING_LINK"
+    | "BOTTLENECK"
+    | "TRACING"
+    | "SYNTAX_ERROR";
+
+export interface BlitzConfig {
+    playerFormat: PlayerFormat;
+    sessionType:  SessionType;
+    category:     BlitzCategory | null;
+    livesEnabled: boolean;
+    lives:        number;
+    totalRounds:  number;
+}
+
+export interface RoundChallenge {
+    id:           string;
+    title:        string;
+    description:  string;
+    codeTemplate: string;
+    hints:        unknown;
+    timeLimitMs:  number;
+}
+
+export interface PlayerSnapshot {
+    userId:         string;
+    score:          number;
+    roundScores:    number[];
+    livesRemaining: number;
+}
 
 export interface RoundResult {
-    roundNumber: number;
-    verdict: string;
-    score: number;
+    userId:      string;
+    challengeId: string;
+    passed:      boolean;
+    points:      number;
+}
+
+// ── Per-round history entry for results screen ────────────────────────────
+export interface RoundHistoryEntry {
+    roundNumber:    number;
+    verdict:        "CORRECT" | "INCORRECT";
+    score:          number;
     executionTimeMs: number;
 }
 
-export interface GameState {
-    // Connection state
-    connected: boolean;
-    socket: WebSocket | null;
-    error: string | null;
+interface GameState {
+    connected:         boolean;
+    socketStatus:      "CONNECTING" | "OPEN" | "CLOSED" | "ERROR";
+    matchStatus:       "IDLE" | "QUEUED" | "MATCHED";
+    queueError:        string | null;
+    sessionId:         string | null;
+    sessionStatus:     SessionStatus;
+    config:            BlitzConfig | null;
+    players:           PlayerSnapshot[];
+    currentRound:      number;
+    totalRounds:       number;
+    challenge:         RoundChallenge | null;
+    lastResult:        RoundResult | null;
+    showResultOverlay: boolean;
+    myLives:           number;
+    abortReason:       string | null;
+    // ── Timer ──
+    timeRemaining:     number | null;
+    // ── Results history ──
+    roundHistory:      RoundHistoryEntry[];
 
-    // Reconnection state
-    _wsUrl: string | null;
-    _reconnectAttempt: number;
-    _reconnectTimeoutId: ReturnType<typeof setTimeout> | null;
-    _intentionalDisconnect: boolean;
+    setConnected:         (v: boolean) => void;
+    setSocketStatus:      (v: GameState["socketStatus"]) => void;
+    setMatchStatus:       (v: GameState["matchStatus"]) => void;
+    setQueueError:        (msg: string | null) => void;
+    applySessionJoined:   (payload: SessionJoinedPayload) => void;
+    applyPlayerConnected: (userId: string) => void;
+    applyRoundStart:      (payload: RoundStartPayload) => void;
+    applyRoundResult:     (payload: RoundResultPayload) => void;
+    applyTimerSync:       (payload: TimerSyncPayload) => void;
+    applySessionEnd:      (payload: SessionEndPayload) => void;
+    applySessionAborted:  (payload: SessionAbortedPayload) => void;
+    dismissResultOverlay: () => void;
+    reset:                () => void;
+}
 
-    // Session state
-    sessionId: string | null;
-    opponentId: string | null;
-    status: "LOBBY" | "ACTIVE" | "COMPLETED" | "ERROR" | "QUEUE";
-
-    // Round state
+// ── Payload shapes ────────────────────────────────────────────────────────
+export interface SessionJoinedPayload {
+    sessionId:    string;
+    config:       BlitzConfig;
+    players:      { userId: string; score: number; livesRemaining: number }[];
     currentRound: number;
-    maxRounds: number;
-    remainingMs: number | null;
-    challenge: {
-        id: string;
-        title: string;
-        description: string;
-        codeTemplate: string;
-        timeLimitMs: number;
-    } | null;
-
-    // Scores
-    totalScore: number;
-    opponentScore: number;
-
-    // Round result (populated on ROUND_RESULT, cleared on next ROUND_START)
-    lastRoundResult: RoundResult | null;
-
-    // Per-session history for ResultsScreen
-    roundHistory: RoundResult[];
-
-    // Actions
-    connect: (url: string) => void;
-    disconnect: () => void;
-    sendMessage: (msg: WsClientMessage) => void;
-    joinQueue: () => void;
-    submitAnswer: (code: string) => void;
-    setError: (err: string) => void;
-    clearRoundResult: () => void;
-    retryConnection: () => void;
+    maxRounds:    number;
+    status:       string;
 }
 
-export const useGameStore = create<GameState>((set, get) => ({
-    connected: false,
-    socket: null,
-    error: null,
-    _wsUrl: null,
-    _reconnectAttempt: 0,
-    _reconnectTimeoutId: null,
-    _intentionalDisconnect: false,
-    sessionId: null,
-    opponentId: null,
-    status: "LOBBY",
-    currentRound: 0,
-    maxRounds: 0,
-    remainingMs: null,
-    challenge: null,
-    totalScore: 0,
-    opponentScore: 0,
-    lastRoundResult: null,
-    roundHistory: [],
+export interface RoundStartPayload {
+    roundNumber: number;
+    totalRounds: number;
+    challenge:   RoundChallenge;
+    players:     PlayerSnapshot[];
+}
 
-    connect: (url: string) => {
-        if (get().socket?.readyState === WebSocket.OPEN) return;
+export interface RoundResultPayload {
+    userId:          string;
+    challengeId:     string;
+    passed:          boolean;
+    points:          number;
+    livesRemaining?: number;
+    roundState: {
+        currentRound:      number;
+        isTerminated:      boolean;
+        terminationCause?: string;
+    };
+    players: PlayerSnapshot[];
+}
 
-        // Clear any pending reconnect timer
-        const prevTimeout = get()._reconnectTimeoutId;
-        if (prevTimeout) clearTimeout(prevTimeout);
+export interface TimerSyncPayload {
+    roundNumber:     number;
+    remainingMs:     number;
+    serverTimestamp: number;
+}
 
-        set({ _wsUrl: url, _intentionalDisconnect: false, _reconnectTimeoutId: null });
+export interface SessionEndPayload {
+    cause:      "COMPLETED" | "LIVES_EXHAUSTED";
+    finalState: { players: PlayerSnapshot[] };
+}
 
-        const ws = new WebSocket(url);
+export interface SessionAbortedPayload {
+    reason:    string;
+    abortedBy: string;
+}
 
-        ws.onopen = () => {
-            set({ connected: true, socket: ws, error: null, _reconnectAttempt: 0 });
-        };
+const initialState = {
+    connected:         false,
+    socketStatus:      "CONNECTING" as const,
+    matchStatus:       "IDLE"       as const,
+    queueError:        null,
+    sessionId:         null,
+    sessionStatus:     "IDLE"       as SessionStatus,
+    config:            null,
+    players:           [],
+    currentRound:      0,
+    totalRounds:       5,
+    challenge:         null,
+    lastResult:        null,
+    showResultOverlay: false,
+    myLives:           0,
+    abortReason:       null,
+    timeRemaining:     null,
+    roundHistory:      [] as RoundHistoryEntry[],
+};
 
-        ws.onmessage = (event) => {
-            try {
-                const message: WsServerMessage = JSON.parse(event.data);
-                handleServerMessage(message, set, get);
-            } catch (err) {
-                console.error("Failed to parse WS message", event.data);
+export const useGameStore = create<GameState>()(
+    immer((set) => ({
+        ...initialState,
+
+        setConnected:    (v)   => set((s) => { s.connected    = v; }),
+        setSocketStatus: (v)   => set((s) => { s.socketStatus = v; }),
+        setMatchStatus:  (v)   => set((s) => { s.matchStatus  = v; }),
+        setQueueError:   (msg) => set((s) => { s.queueError   = msg; }),
+
+        applySessionJoined: (payload) => set((s) => {
+            s.sessionId     = payload.sessionId;
+            s.config        = payload.config;
+            s.sessionStatus = "LOBBY";
+            s.totalRounds   = payload.config.totalRounds;
+            s.myLives       = payload.config.livesEnabled ? payload.config.lives : 0;
+            s.matchStatus   = "MATCHED";
+            s.roundHistory  = [];
+            s.players       = payload.players.map((p) => ({
+                userId:         p.userId,
+                score:          p.score ?? 0,
+                roundScores:    [],
+                livesRemaining: p.livesRemaining ?? (payload.config.livesEnabled ? payload.config.lives : 0),
+            }));
+        }),
+
+        applyPlayerConnected: (userId) => set((s) => {
+            if (!s.players.find((p: PlayerSnapshot) => p.userId === userId)) {
+                s.players.push({
+                    userId,
+                    score:          0,
+                    roundScores:    [],
+                    livesRemaining: s.config?.lives ?? 0,
+                });
             }
-        };
+        }),
 
-        ws.onclose = (event) => {
-            const reason = event.reason || (event.code === 1005 ? "No status (connection lost or server closed without frame)" : "");
-            console.log("[GameStore] WebSocket closed:", event.code, reason || "(no reason)");
-            set({ connected: false, socket: null });
-            scheduleReconnect(set, get);
-        };
+        applyRoundStart: (payload) => set((s) => {
+            s.sessionStatus    = "ACTIVE";
+            s.currentRound     = payload.roundNumber;
+            s.totalRounds      = payload.totalRounds;
+            s.challenge        = payload.challenge;
+            s.players          = payload.players;
+            s.lastResult       = null;
+            s.showResultOverlay = false;
+            // ── Seed timer from challenge config ──────────────────────────
+            s.timeRemaining    = payload.challenge.timeLimitMs;
+        }),
 
-        ws.onerror = () => {
-            set({ error: "Failed to connect to game server" });
-        };
-    },
-
-    disconnect: () => {
-        const { socket, _reconnectTimeoutId } = get();
-        // Mark as intentional so onclose doesn't auto-reconnect
-        set({ _intentionalDisconnect: true });
-        if (_reconnectTimeoutId) clearTimeout(_reconnectTimeoutId);
-        if (socket) {
-            socket.close();
-            set({ connected: false, socket: null, _reconnectTimeoutId: null, _reconnectAttempt: 0 });
-        }
-    },
-
-    sendMessage: (msg: WsClientMessage) => {
-        const { socket, connected } = get();
-        if (socket && connected && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(msg));
-        }
-    },
-
-    joinQueue: () => {
-        // matchmaking is triggered via REST /sessions, handled in arcade/page.tsx
-    },
-
-    submitAnswer: (code: string) => {
-        const { sessionId, currentRound } = get();
-        if (!sessionId) return;
-        get().sendMessage({
-            type: "SUBMIT_ANSWER",
-            sessionId,
-            roundNumber: currentRound,
-            code,
-        });
-    },
-
-    setError: (error: string) => set({ error }),
-
-    clearRoundResult: () => set({ lastRoundResult: null }),
-
-    retryConnection: () => {
-        const { _wsUrl } = get();
-        if (!_wsUrl) return;
-        set({ _reconnectAttempt: 0, _intentionalDisconnect: false, error: null });
-        get().connect(_wsUrl);
-    },
-}));
-
-// ─── Reconnection with exponential backoff ───────────────────────────
-function scheduleReconnect(
-    set: (partial: Partial<GameState>) => void,
-    get: () => GameState
-) {
-    const { _intentionalDisconnect, _reconnectAttempt, _wsUrl } = get();
-
-    // Don't reconnect if user explicitly disconnected or no URL stored
-    if (_intentionalDisconnect || !_wsUrl) return;
-
-    // Give up after max attempts
-    if (_reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-        set({ error: "Unable to connect after multiple attempts. Click retry." });
-        return;
-    }
-
-    const delay = Math.min(
-        BASE_RECONNECT_DELAY_MS * Math.pow(2, _reconnectAttempt),
-        MAX_RECONNECT_DELAY_MS
-    );
-
-    const nextAttempt = _reconnectAttempt + 1;
-    set({ _reconnectAttempt: nextAttempt });
-
-    const timeoutId = setTimeout(() => {
-        // Re-check: user may have disconnected while timer was pending
-        if (get()._intentionalDisconnect) return;
-        get().connect(_wsUrl);
-    }, delay);
-
-    set({ _reconnectTimeoutId: timeoutId });
-}
-
-// Internal handler mapping WS server messages to Zustand state
-function handleServerMessage(
-    msg: WsServerMessage,
-    set: (partial: Partial<GameState>) => void,
-    get: () => GameState
-) {
-    switch (msg.type) {
-        case "SESSION_JOINED":
-            set({
-                sessionId: msg.sessionId,
-                currentRound: msg.currentRound,
-                maxRounds: msg.maxRounds,
-                status: (msg.status as any) || "LOBBY",
-            });
-            break;
-
-        case "MATCH_FOUND":
-            set({
-                opponentId: msg.opponentId,
-                sessionId: msg.sessionId,
-                status: "LOBBY",
-            });
-            break;
-
-        case "ROUND_START":
-            set({
-                status: "ACTIVE",
-                currentRound: msg.roundNumber,
-                challenge: msg.challenge,
-                remainingMs: msg.challenge.timeLimitMs,
-                lastRoundResult: null, // Clear any previous round result overlay
-            });
-            break;
-
-        case "TIMER_SYNC":
-            set({ remainingMs: msg.remainingMs });
-            break;
-
-        case "ROUND_RESULT": {
-            const result: RoundResult = {
-                roundNumber: msg.roundNumber,
-                verdict: msg.verdict,
-                score: msg.score,
-                executionTimeMs: msg.executionTimeMs ?? 0,
+        applyRoundResult: (payload) => set((s) => {
+            s.players    = payload.players;
+            s.lastResult = {
+                userId:      payload.userId,
+                challengeId: payload.challengeId,
+                passed:      payload.passed,
+                points:      payload.points,
             };
-            const prev = get();
-            set({
-                totalScore: msg.totalScore,
-                status: "LOBBY", // Between rounds — wait for next ROUND_START
-                lastRoundResult: result,
-                roundHistory: [...prev.roundHistory, result],
+            s.showResultOverlay = true;
+            s.timeRemaining     = null;
+
+            if (payload.livesRemaining !== undefined) {
+                s.myLives = payload.livesRemaining;
+            }
+
+            // ── Accumulate round history for results screen ───────────────
+            s.roundHistory.push({
+                roundNumber:     payload.roundState.currentRound - 1 || s.currentRound,
+                verdict:         payload.passed ? "CORRECT" : "INCORRECT",
+                score:           payload.points,
+                executionTimeMs: 0,  // filled when code-runner is integrated
             });
-            break;
-        }
 
-        case "OPPONENT_SUBMITTED":
-            set({ opponentScore: msg.opponentScore });
-            break;
+            if (payload.roundState.isTerminated) {
+                s.sessionStatus = "COMPLETED";
+            }
+        }),
 
-        case "SESSION_COMPLETE":
-            set({ status: "COMPLETED", totalScore: msg.totalScore });
-            break;
+        // ── TIMER_SYNC — server-driven countdown ──────────────────────────
+        applyTimerSync: (payload) => set((s) => {
+            s.timeRemaining = payload.remainingMs;
+        }),
 
-        case "ERROR":
-            set({ error: msg.message });
-            break;
+        applySessionEnd: (payload) => set((s) => {
+            s.sessionStatus    = "COMPLETED";
+            s.players          = payload.finalState.players;
+            s.challenge        = null;
+            s.showResultOverlay = false;
+            s.timeRemaining     = null;
+        }),
 
-        case "PONG":
-            break;
-    }
-}
+        applySessionAborted: (payload) => set((s) => {
+            s.sessionStatus = "ABORTED";
+            s.abortReason   = payload.reason;
+            s.challenge     = null;
+            s.timeRemaining = null;
+        }),
+
+        dismissResultOverlay: () => set((s) => { s.showResultOverlay = false; }),
+        reset:                () => set(() => ({ ...initialState })),
+    }))
+);

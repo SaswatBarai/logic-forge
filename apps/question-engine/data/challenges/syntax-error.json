@@ -1,0 +1,61 @@
+[
+  {
+    "category": "SYNTAX_ERROR_DETECTION",
+    "difficulty": "EASY",
+    "language": "PYTHON",
+    "title": "Off-by-One in Range",
+    "description": "This function should sum numbers 1 through n inclusive, but returns the wrong result. Identify the line with the bug.",
+    "codeTemplate": "def sum_range(n):\n    total = 0\n    for i in range(n):   # BUG IS HERE\n        total += i\n    return total",
+    "solution": { "answers": ["range(1, n + 1)", "range(1, n+1)"] },
+    "testCases": [
+      { "input": "5", "expectedOutput": "15" },
+      { "input": "10", "expectedOutput": "55" }
+    ],
+    "hints": ["range(n) starts at 0 and excludes n."],
+    "semanticTokens": {
+      "total": { "type": "variable", "context": "ACCUMULATOR" },
+      "sum_range": { "type": "function", "context": "PROCESS" }
+    },
+    "timeLimitMs": 45000,
+    "active": true
+  },
+  {
+    "category": "SYNTAX_ERROR_DETECTION",
+    "difficulty": "MEDIUM",
+    "language": "JAVA",
+    "title": "Null Check Missing",
+    "description": "This method throws a NullPointerException on empty input. Identify and fix the missing guard.",
+    "codeTemplate": "public int getFirstElement(int[] dataStream) {\n    return dataStream[0]; // may throw\n}",
+    "solution": { "answers": ["if (dataStream == null || dataStream.length == 0) return -1;"] },
+    "testCases": [
+      { "input": "null", "expectedOutput": "-1" },
+      { "input": "[5,3]", "expectedOutput": "5" }
+    ],
+    "hints": ["Always guard against null and empty arrays before indexing."],
+    "semanticTokens": {
+      "dataStream": { "type": "variable", "context": "COLLECTION" },
+      "getFirstElement": { "type": "function", "context": "ACCESSOR" }
+    },
+    "timeLimitMs": 45000,
+    "active": true
+  },
+  {
+    "category": "SYNTAX_ERROR_DETECTION",
+    "difficulty": "HARD",
+    "language": "CPP",
+    "title": "Iterator Invalidation",
+    "description": "This loop erases elements while iterating — a classic undefined behaviour. Identify the fix.",
+    "codeTemplate": "void removeEvens(vector<int>& pipeline) {\n    for (auto it = pipeline.begin(); it != pipeline.end(); ++it) {\n        if (*it % 2 == 0) {\n            pipeline.erase(it); // BUG\n        }\n    }\n}",
+    "solution": { "answers": ["it = pipeline.erase(it);", "it = pipeline.erase(it); } else { ++it; }"] },
+    "testCases": [
+      { "input": "[1,2,3,4,5]", "expectedOutput": "[1,3,5]" }
+    ],
+    "hints": ["erase() returns a valid iterator to the next element — use it."],
+    "semanticTokens": {
+      "pipeline": { "type": "variable", "context": "COLLECTION" },
+      "removeEvens": { "type": "function", "context": "PROCESS" }
+    },
+    "timeLimitMs": 60000,
+    "active": true
+  }
+]

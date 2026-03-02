@@ -1,221 +1,151 @@
 import { getRedisClient } from "@logicforge/config";
-import { db } from "@logicforge/db";
 import { logger } from "../app";
-import { getRoundChallenge } from "./round.service";
+import type { BlitzSessionConfig } from "@logicforge/types";
 
-const QUESTION_ENGINE_URL =
-    process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
-const CODE_RUNNER_URL =
-    process.env.CODE_RUNNER_URL || "http://localhost:3004";
+const SESSION_TTL = 3600; // 1 hour
 
-// ---------------------------------------------------------------------------
-// Session join / state hydration
-// ---------------------------------------------------------------------------
+export type SessionStatus = "LOBBY" | "ACTIVE" | "COMPLETED" | "ABORTED";
 
-/**
- * Joins a user into a game session.
- * Initialises Redis state if it's the first time joining.
- */
-export async function joinSession(sessionId: string, userId: string) {
-    const redis = await getRedisClient();
-    const cacheKey = `session:${sessionId}`;
+export interface BlitzSession {
+    sessionId: string;
+    config: BlitzSessionConfig;
+    players: string[];
+    status: SessionStatus;
+    currentRound: number;
+    createdAt: number;
+}
 
-    const stateStr = await redis.get(cacheKey);
-    if (!stateStr) {
-        const sessionDoc = await db.gameSession.findUnique({
-            where: { id: sessionId },
-        });
-
-        if (!sessionDoc) {
-            throw new Error(`Session ${sessionId} not found in DB`);
-        }
-        if (sessionDoc.status === "COMPLETED" || sessionDoc.status === "ABANDONED") {
-            throw new Error(`Session is already ${sessionDoc.status}`);
-        }
-
-        // Cast to any because Prisma client types may be stale until `db:generate` is re-run
-        const doc = sessionDoc as any;
-        const initialState = {
-            id: doc.id,
-            mode: doc.mode,
-            playerFormat: doc.playerFormat, // 🛠️ FIX: Add this line!
-            status: doc.status,
-            currentRound: doc.currentRound,
-            maxRounds: doc.maxRounds,
-            startedAt: doc.startedAt,
-            roundStartTime: null,
-            roundTimeLimit: 60_000,
+export class SessionService {
+    async createSession(
+        sessionId: string,
+        config: BlitzSessionConfig,
+        players: string[]
+    ): Promise<BlitzSession> {
+        const redis = await getRedisClient();
+        const session: BlitzSession = {
+            sessionId,
+            config,
+            players,
+            status: "LOBBY",
+            currentRound: 0,
+            createdAt: Date.now(),
         };
-
-        await redis.set(cacheKey, JSON.stringify(initialState));
-        await redis.expire(cacheKey, 3600);
-        return initialState;
-    }
-
-    return JSON.parse(stateStr);
-}
-
-// ---------------------------------------------------------------------------
-// Real submission pipeline
-// ---------------------------------------------------------------------------
-
-/**
- * Handles an incoming code submission via WS:
- *   1. Fetch challenge + test cases from Question Engine
- *   2. Send code to Code Runner → get verdict
- *   3. Persist Submission to Postgres
- *   4. Return structured result for socket.handler to use
- */
-export async function recordSubmission(
-    sessionId: string,
-    roundNumber: number,
-    userId: string,
-    code: string
-): Promise<{
-    verdict: string;
-    score: number;
-    executionTimeMs: number;
-    testResults: Array<{ passed: boolean; input: string; expectedOutput: string; actualOutput: string }>;
-}> {
-    logger.info({ sessionId, roundNumber, userId }, "Processing code submission");
-
-    // 1. Retrieve round context (challengeId + language) from Redis
-    const roundCtx = await getRoundChallenge(sessionId);
-    if (!roundCtx) {
-        logger.warn({ sessionId }, "No round context found in cache — defaulting to PENDING");
-        return { verdict: "PENDING", score: 0, executionTimeMs: 0, testResults: [] };
-    }
-
-    let testCases: Array<{ input: string; expectedOutput: string }> = [];
-    let language = roundCtx.language;
-
-    // 2. Fetch full challenge details from Question Engine (for testCases)
-    try {
-        const challengeRes = await fetch(
-            `${QUESTION_ENGINE_URL}/api/v1/challenges/${roundCtx.challengeId}`
-        );
-        if (challengeRes.ok) {
-            const { data: challenge } = await challengeRes.json();
-            testCases = Array.isArray(challenge.testCases) ? challenge.testCases : [];
-            language = challenge.language ?? language;
-        } else {
-            logger.warn(
-                { challengeId: roundCtx.challengeId },
-                "Failed to fetch challenge from QE — using empty testCases"
-            );
+        await redis.setEx(`session:${sessionId}`, SESSION_TTL, JSON.stringify(session));
+        const playerdata: Record<string, { score: number; roundScores: number[]; livesRemaining: number }> = {};
+        for (const userId of players) {
+            playerdata[userId] = {
+                score: 0,
+                roundScores: [],
+                livesRemaining: config.livesEnabled ? config.lives : 0,
+            };
+            await redis.setEx(`pending:match:${userId}`, 120, sessionId);
         }
-    } catch (err) {
-        logger.error({ err }, "Error fetching challenge from Question Engine");
+        await redis.setEx(`session:${sessionId}:playerdata`, SESSION_TTL, JSON.stringify(playerdata));
+        logger.info({ sessionId, playerCount: players.length }, "Session created");
+        return session;
     }
 
-    // 3. Send to Code Runner
-    let verdict = "RUNTIME_ERROR";
-    let executionTimeMs = 0;
-    let testResults: Array<{
-        passed: boolean;
-        input: string;
-        expectedOutput: string;
-        actualOutput: string;
-    }> = [];
+    async getSession(sessionId: string): Promise<BlitzSession | null> {
+        const redis = await getRedisClient();
+        const raw = await redis.get(`session:${sessionId}`);
+        return raw ? (JSON.parse(raw) as BlitzSession) : null;
+    }
 
-    try {
-        const execRes = await fetch(`${CODE_RUNNER_URL}/api/v1/execute`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                language,
-                code,
-                testCases,
-                timeLimitMs: roundCtx.timeLimitMs,
-            }),
-        });
+    async updateSession(sessionId: string, update: Partial<BlitzSession>): Promise<void> {
+        const session = await this.getSession(sessionId);
+        if (!session) return;
+        const redis = await getRedisClient();
+        const updated = { ...session, ...update };
+        await redis.setEx(`session:${sessionId}`, SESSION_TTL, JSON.stringify(updated));
+    }
 
-        if (execRes.ok) {
-            const execData = await execRes.json();
-            verdict = execData.verdict ?? "RUNTIME_ERROR";
-            executionTimeMs = execData.totalExecutionTimeMs ?? 0;
-            testResults = execData.testResults ?? [];
-        } else {
-            logger.warn({ status: execRes.status }, "Code Runner returned non-200");
+    async registerSocket(userId: string, socketId: string): Promise<void> {
+        const redis = await getRedisClient();
+        await redis.setEx(`socket:${userId}`, 3600, socketId);
+    }
+
+    async unregisterSocket(userId: string): Promise<void> {
+        const redis = await getRedisClient();
+        await redis.del(`socket:${userId}`);
+    }
+
+    async getSocketId(userId: string): Promise<string | null> {
+        const redis = await getRedisClient();
+        return redis.get(`socket:${userId}`);
+    }
+
+    async markPlayerJoined(sessionId: string, userId: string): Promise<number> {
+        const redis = await getRedisClient();
+        const key = `session:${sessionId}:joined`;
+        await redis.sAdd(key, userId);
+        await redis.expire(key, SESSION_TTL);
+        return redis.sCard(key);
+    }
+
+    async getJoinedCount(sessionId: string): Promise<number> {
+        const redis = await getRedisClient();
+        return redis.sCard(`session:${sessionId}:joined`);
+    }
+
+    async markPlayerReady(sessionId: string, userId: string): Promise<number> {
+        const redis = await getRedisClient();
+        const key = `session:${sessionId}:ready`;
+        await redis.sAdd(key, userId);
+        await redis.expire(key, SESSION_TTL);
+        return redis.sCard(key);
+    }
+
+    async getReadyCount(sessionId: string): Promise<number> {
+        const redis = await getRedisClient();
+        return redis.sCard(`session:${sessionId}:ready`);
+    }
+
+    async getPendingMatch(userId: string): Promise<string | null> {
+        const redis = await getRedisClient();
+        return redis.get(`pending:match:${userId}`);
+    }
+
+    async clearPendingMatch(userId: string): Promise<void> {
+        const redis = await getRedisClient();
+        await redis.del(`pending:match:${userId}`);
+    }
+
+    async recordRoundScore(sessionId: string, userId: string, points: number): Promise<void> {
+        const redis = await getRedisClient();
+        const raw = await redis.get(`session:${sessionId}:playerdata`);
+        if (!raw) return;
+        const playerdata = JSON.parse(raw) as Record<string, { score: number; roundScores: number[]; livesRemaining: number }>;
+        const p = playerdata[userId];
+        if (p) {
+            p.score += points;
+            p.roundScores.push(points);
+            await redis.setEx(`session:${sessionId}:playerdata`, SESSION_TTL, JSON.stringify(playerdata));
         }
-    } catch (err) {
-        logger.error({ err }, "Error calling Code Runner");
-        verdict = "RUNTIME_ERROR";
     }
 
-    // 4. Compute score: 100 for CORRECT, 0 otherwise
-    const score = verdict === "CORRECT" ? 100 : 0;
-
-    // 5. Persist Round + Submission to Postgres (best effort — don't block response)
-    persistSubmission(sessionId, roundNumber, roundCtx.challengeId, roundCtx.startedAt, code, verdict, score, executionTimeMs, testResults);
-
-    logger.info({ sessionId, roundNumber, verdict, score }, "Submission processed");
-    return { verdict, score, executionTimeMs, testResults };
-}
-
-/**
- * Fire-and-forget persistence so WS response is not delayed by DB writes.
- */
-async function persistSubmission(
-    sessionId: string,
-    roundNumber: number,
-    challengeId: string,
-    roundStartedAt: number,
-    code: string,
-    verdict: string,
-    score: number,
-    executionTimeMs: number,
-    testResults: unknown[]
-) {
-    try {
-        // Upsert Round row — cast db to any since Prisma client may be stale until db:generate
-        const dbAny = db as any;
-        const round = await dbAny.round.upsert({
-            where: { sessionId_roundNumber: { sessionId, roundNumber } },
-            update: { status: "COMPLETED", endedAt: new Date(), score },
-            create: {
-                sessionId,
-                roundNumber,
-                challengeId,
-                status: "COMPLETED",
-                score,
-                startedAt: new Date(roundStartedAt),
-                endedAt: new Date(),
-            },
-        });
-
-        // Create Submission linked to the Round
-        await dbAny.submission.create({
-            data: {
-                roundId: round.id,
-                code,
-                verdict: verdict as any,
-                executionTimeMs,
-                testResults: testResults as any,
-            },
-        });
-    } catch (err) {
-        logger.error({ err, sessionId, roundNumber }, "Failed to persist Submission to DB");
+    async deductLife(sessionId: string, userId: string): Promise<void> {
+        const redis = await getRedisClient();
+        const raw = await redis.get(`session:${sessionId}:playerdata`);
+        if (!raw) return;
+        const playerdata = JSON.parse(raw) as Record<string, { score: number; roundScores: number[]; livesRemaining: number }>;
+        const p = playerdata[userId];
+        if (p && p.livesRemaining > 0) {
+            p.livesRemaining--;
+            await redis.setEx(`session:${sessionId}:playerdata`, SESSION_TTL, JSON.stringify(playerdata));
+        }
     }
-}
 
-// ---------------------------------------------------------------------------
-// Forfeit / disconnect
-// ---------------------------------------------------------------------------
-
-/**
- * Explicit forfeit or timeout when a player disconnects.
- */
-export async function forfeitSession(sessionId: string, userId: string | undefined) {
-    if (!userId) return;
-
-    logger.debug({ sessionId, userId }, "Forfeiting session due to LEAVE/Disconnect");
-
-    await db.gameSession.update({
-        where: { id: sessionId },
-        data: { status: "ABANDONED", endedAt: new Date() },
-    });
-
-    const redis = await getRedisClient();
-    await redis.del(`session:${sessionId}`);
+    /** Returns session with players array for round/result payloads */
+    async serialize(session: BlitzSession): Promise<{ players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }> }> {
+        const redis = await getRedisClient();
+        const raw = await redis.get(`session:${session.sessionId}:playerdata`);
+        const playerdata = raw
+            ? (JSON.parse(raw) as Record<string, { score: number; roundScores: number[]; livesRemaining: number }>)
+            : {};
+        const players = session.players.map((userId) => {
+            const p = playerdata[userId] ?? { score: 0, roundScores: [], livesRemaining: session.config.livesEnabled ? session.config.lives : 0 };
+            return { userId, ...p };
+        });
+        return { players };
+    }
 }

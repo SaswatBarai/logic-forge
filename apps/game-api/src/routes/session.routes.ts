@@ -1,49 +1,36 @@
 import { Router, Request, Response } from "express";
-import { CreateSessionSchema } from "@logicforge/types";
-import { db } from "@logicforge/db";
-import { findOrQueueMatch, dequeueMatch } from "../services/matchmaker.service";
-import { logger } from "../app";
+import { z } from "zod";
+import { MatchmakerService } from "../services/matchmaker.service";
 
-const router:Router = Router();
+const router: Router = Router();
 
-// POST /api/v1/sessions
+const CreateSessionSchema = z.object({
+    mode:         z.literal("ARCADE"),
+    playerFormat: z.enum(["SINGLE", "DUAL"]),
+    sessionType:  z.enum(["TIMER", "LIVE"]),
+    category:     z.enum(["MISSING_LINK", "BOTTLENECK", "TRACING"]).nullable(),
+    userId:       z.string().min(1),
+}).refine(
+    (d) => !(d.sessionType === "TIMER" && d.category === null),
+    { message: "Timer Mode requires a category", path: ["category"] }
+);
+
 router.post("/", async (req: Request, res: Response) => {
-    try {
-        const payload = CreateSessionSchema.parse(req.body);
-        // Use userId from request body (sent by frontend), fall back to random ID
-        const userId: string = req.body.userId || `anon-${Math.random().toString(36).slice(2, 10)}`;
-
-        // Handle Dual Matchmaking initialization
-        if (payload.playerFormat === "DUAL") {
-            const matchResult = await findOrQueueMatch(userId);
-            return res.status(200).json({ success: true, data: matchResult });
-        }
-
-        // Handle Single Player (Story or standard Arcade)
-        const session = await db.gameSession.create({
-            data: {
-                userId,
-                mode: payload.mode,
-                sessionType: payload.sessionType,
-                playerFormat: "SINGLE",
-                category: payload.category as any,
-                language: payload.language as any,
-                status: "LOBBY",
-            }
-        });
-
-        res.status(201).json({ success: true, data: session });
-    } catch (err: any) {
-        logger.error({ err }, "Failed to create session");
-        res.status(400).json({ success: false, error: "VALIDATION_FAILED", details: err });
+    const parsed = CreateSessionSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.flatten() });
     }
-});
 
-// DEL /api/v1/sessions/queue
-router.delete("/queue", async (req: Request, res: Response) => {
-    const userId: string = req.body?.userId || "unknown";
-    await dequeueMatch(userId);
-    res.status(200).json({ success: true });
+    const matchmakerService: MatchmakerService = req.app.get("matchmakerService");
+
+    try {
+        // ✅ Pass short names directly — types are consistent end-to-end
+        // Translation to Prisma/QE enum happens in round.service.ts only
+        const result = await matchmakerService.findOrCreateSession(parsed.data);
+        return res.status(result.status === "MATCHED" ? 201 : 202).json({ data: result });
+    } catch (err: any) {
+        return res.status(400).json({ error: err.message });
+    }
 });
 
 export default router;

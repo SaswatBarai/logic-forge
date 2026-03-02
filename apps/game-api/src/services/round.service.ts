@@ -1,268 +1,320 @@
-import { getRedisClient } from "@logicforge/config";
-import { db } from "@logicforge/db";
-import { logger } from "../app";
-import { broadcastToSession } from "../websocket/socket.manager";
-import {
-    RoundStartPayload,
-    TimerSyncPayload,
-    RoundResultPayload,
-    SessionCompletePayload,
-} from "@logicforge/types";
+// apps/game-api/src/services/round.service.ts
 
-// In-memory per-session round history (for SESSION_COMPLETE aggregate)
-const sessionRoundHistory = new Map<
-    string,
-    Array<{ roundNumber: number; verdict: string; score: number; timeMs: number }>
->();
+import type { Server as SocketServer } from "socket.io";
+import { logger } from "../app";
+import {
+    BlitzSessionConfig,
+    BlitzCategory,
+    LiveCategory,
+    LIVE_CATEGORY_POOL,
+    TOTAL_ROUNDS,
+    TimerCategory,
+} from "@logicforge/types";
+import type { SessionService } from "./session.service";
 
 const QUESTION_ENGINE_URL =
     process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
 
-// Cache key helpers
-const sessionCacheKey = (sid: string) => `session:${sid}`;
-const roundCacheKey = (sid: string) => `session:${sid}:round`;
+// ── Category map: types short names → question-engine/DB enum ────────────
+const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
+    "MISSING_LINK": "THE_MISSING_LINK",
+    "BOTTLENECK":   "THE_BOTTLENECK_BREAKER",
+    "TRACING":      "STATE_TRACING",
+    "SYNTAX_ERROR": "SYNTAX_ERROR_DETECTION",
+};
 
-// In-process timer references (fine for single-instance dev)
-const timers = new Map<string, NodeJS.Timeout[]>();
+// ── Languages available for arcade mode (no user selection yet) ──────────
+const ARCADE_LANGUAGES = ["PYTHON", "JAVA", "CPP"] as const;
+type ArcadeLanguage = typeof ARCADE_LANGUAGES[number];
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+function pickLanguage(): ArcadeLanguage {
+    return ARCADE_LANGUAGES[Math.floor(Math.random() * ARCADE_LANGUAGES.length)];
+}
 
-/**
- * Fetch a challenge from Question Engine, cache it in Redis, and broadcast
- * ROUND_START to every client in the session room.
- */
-export async function startRound(
-    sessionId: string,
-    roundNumber: number
-): Promise<void> {
-    const redis = await getRedisClient();
+// ── Per-session round state ───────────────────────────────────────────────
+export interface RoundState {
+    sessionId:        string;
+    currentRound:     number;
+    livesRemaining:   number;
+    categoryHistory:  BlitzCategory[];
+    usedChallengeIds: string[];          // prevent duplicate challenges
+    isTerminated:     boolean;
+    terminationCause?: "LIVES_EXHAUSTED" | "COMPLETED";
+}
 
-    // 1. Fetch a random challenge from Question Engine
-    const challengeRes = await fetch(
-        `${QUESTION_ENGINE_URL}/api/v1/challenges/random?language=PYTHON`
-    );
-    if (!challengeRes.ok) {
-        throw new Error(
-            `Question Engine returned ${challengeRes.status} when fetching challenge`
+// ── Matches ChallengeResponseSchema from @logicforge/types ───────────────
+interface ChallengeApiResponse {
+    id:           string;
+    title:        string;
+    description:  string;
+    codeTemplate: string;
+    hints:        unknown;
+    timeLimitMs:  number;
+    category:     string;
+    language:     string;
+    difficulty:   string;
+}
+
+// ── Shape sent in ROUND_START — matches RoundStartPayload on frontend ─────
+export interface RoundChallenge {
+    id:           string;
+    title:        string;
+    description:  string;
+    codeTemplate: string;
+    hints:        unknown;
+    timeLimitMs:  number;
+}
+
+export interface RoundState {
+    sessionId:        string;
+    currentRound:     number;
+    livesRemaining:   number;
+    categoryHistory:  BlitzCategory[];
+    usedChallengeIds: string[];
+    isTerminated:     boolean;
+    terminationCause?: "LIVES_EXHAUSTED" | "COMPLETED";
+}
+
+export interface EvaluateAnswerResult {
+    userId:          string;
+    challengeId:     string;
+    passed:          boolean;
+    points:          number;
+    livesRemaining?: number;
+    roundState: {
+        currentRound:      number;
+        isTerminated:      boolean;
+        terminationCause?: string;
+    };
+    players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
+}
+
+export interface PrepareNextRoundPayload {
+    roundNumber: number;         // ← renamed to match RoundStartPayload frontend type
+    totalRounds: number;
+    challenge:   RoundChallenge;
+    players:     Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
+}
+
+// In-memory store
+const roundStates = new Map<string, RoundState>();
+
+export class RoundService {
+
+    constructor(private readonly sessionService: SessionService) {}
+
+    initSession(sessionId: string, config: BlitzSessionConfig): RoundState {
+        const state: RoundState = {
+            sessionId,
+            currentRound:     1,
+            livesRemaining:   config.livesEnabled ? config.lives : (Infinity as any),
+            categoryHistory:  [],
+            usedChallengeIds: [],
+            isTerminated:     false,
+        };
+        roundStates.set(sessionId, state);
+        logger.info({ sessionId }, "Round state initialized");
+        return state;
+    }
+
+    getState(sessionId: string): RoundState {
+        const state = roundStates.get(sessionId);
+        if (!state) throw new Error(`No round state for session: ${sessionId}`);
+        return state;
+    }
+
+    // ── Fetch challenge from question-engine ──────────────────────────────
+    async fetchChallenge(
+        sessionId: string,
+        config:    BlitzSessionConfig
+    ): Promise<RoundChallenge> {
+        const state    = this.getState(sessionId);
+        const category = this.resolveCategory(state, config);
+
+        // ── Map short name → DB enum before calling QE ────────────────────
+        const qeCategory = CATEGORY_TO_QE[category];
+        const language   = pickLanguage();
+
+        const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
+        url.searchParams.set("category", qeCategory);
+        url.searchParams.set("language", language);
+
+        // Exclude already-used challenges this session
+        if (state.usedChallengeIds.length > 0) {
+            url.searchParams.set("excludeIds", state.usedChallengeIds.join(","));
+        }
+
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Question engine error ${res.status}: ${text}`);
+        }
+
+        // ── QE returns { success, data: ChallengeResponse } ──────────────
+        const body = await res.json() as { success: boolean; data: ChallengeApiResponse };
+        const data = body.data ?? (body as any); // handle flat response too
+
+        state.categoryHistory.push(category);
+        state.usedChallengeIds.push(data.id);
+
+        logger.info(
+            { sessionId, round: state.currentRound, category, language, challengeId: data.id },
+            "Challenge fetched"
         );
-    }
-    const { data: challenge } = await challengeRes.json();
 
-    const timeLimitMs: number = challenge.timeLimitMs ?? 120_000;
-
-    // 2. Persist round context into Redis
-    const roundContext = {
-        challengeId: challenge.id,
-        language: challenge.language ?? "PYTHON",
-        timeLimitMs,
-        startedAt: Date.now(),
-        roundNumber,
-    };
-    await redis.set(roundCacheKey(sessionId), JSON.stringify(roundContext));
-
-    // 3. Update session cache with current round + ACTIVE status
-    const rawSession = await redis.get(sessionCacheKey(sessionId));
-    if (rawSession) {
-        const session = JSON.parse(rawSession);
-        session.currentRound = roundNumber;
-        session.status = "ACTIVE";
-        session.roundStartTime = roundContext.startedAt;
-        await redis.set(sessionCacheKey(sessionId), JSON.stringify(session));
-    }
-
-    // 4. Broadcast ROUND_START
-    const roundStart: RoundStartPayload = {
-        type: "ROUND_START",
-        roundNumber,
-        challenge: {
-            id: challenge.id,
-            title: challenge.title,
-            description: challenge.description,
-            codeTemplate: challenge.codeTemplate ?? "",
-            hints: challenge.hints ?? null,
-            timeLimitMs,
-        },
-    };
-    broadcastToSession(sessionId, roundStart);
-
-    // 5. Schedule periodic TIMER_SYNC broadcasts (every 5 seconds)
-    clearSessionTimers(sessionId);
-    const timerRefs: NodeJS.Timeout[] = [];
-
-    const syncInterval = setInterval(() => {
-        const elapsedMs = Date.now() - roundContext.startedAt;
-        const remainingMs = Math.max(0, timeLimitMs - elapsedMs);
-
-        const sync: TimerSyncPayload = {
-            type: "TIMER_SYNC",
-            roundNumber,
-            remainingMs,
-            serverTimestamp: Date.now(),
+        return {
+            id:           data.id,
+            title:        data.title,
+            description:  data.description,
+            codeTemplate: data.codeTemplate,
+            hints:        data.hints ?? null,
+            timeLimitMs:  this.resolveTimeLimit(config.sessionType, state.currentRound),
         };
-        broadcastToSession(sessionId, sync);
-
-        if (remainingMs <= 0) {
-            clearSessionTimers(sessionId);
-        }
-    }, 5_000);
-
-    // 6. Auto-timeout: end the round when time is up
-    const timeoutRef = setTimeout(async () => {
-        clearSessionTimers(sessionId);
-        logger.info({ sessionId, roundNumber }, "Round timed out — auto-ending");
-        await endRound(sessionId, roundNumber, {
-            verdict: "TIMEOUT",
-            score: 0,
-            executionTimeMs: 0,
-        });
-    }, timeLimitMs);
-
-    timerRefs.push(syncInterval, timeoutRef);
-    timers.set(sessionId, timerRefs);
-
-    logger.info(
-        { sessionId, roundNumber, challengeId: challenge.id },
-        "Round started"
-    );
-}
-
-/**
- * Called after a real submission verdict, or on timeout.
- * Persists the Round to Postgres and broadcasts ROUND_RESULT.
- * If all rounds done, broadcasts SESSION_COMPLETE instead of starting another.
- */
-export async function endRound(
-    sessionId: string,
-    roundNumber: number,
-    results: {
-        verdict: string;
-        score: number;
-        executionTimeMs: number;
-    }
-): Promise<void> {
-    clearSessionTimers(sessionId);
-
-    const redis = await getRedisClient();
-
-    // Fetch session to know maxRounds
-    const rawSession = await redis.get(sessionCacheKey(sessionId));
-    if (!rawSession) {
-        logger.warn({ sessionId }, "endRound: session cache missing");
-        return;
-    }
-    const session = JSON.parse(rawSession);
-
-    // Accumulate round history (in-memory per session)
-    const history = sessionRoundHistory.get(sessionId) ?? [];
-    history.push({
-        roundNumber,
-        verdict: results.verdict,
-        score: results.score,
-        timeMs: results.executionTimeMs,
-    });
-    sessionRoundHistory.set(sessionId, history);
-
-    // Persist Round row to Postgres
-    const roundContext = await getRoundChallenge(sessionId);
-    if (roundContext) {
-        try {
-            const dbAny = db as any;
-            const existing = await dbAny.round.findUnique({
-                where: { sessionId_roundNumber: { sessionId, roundNumber } },
-            });
-            if (!existing) {
-                await dbAny.round.create({
-                    data: {
-                        sessionId,
-                        roundNumber,
-                        challengeId: roundContext.challengeId,
-                        status: results.verdict === "TIMEOUT" ? "TIMED_OUT" : "COMPLETED",
-                        score: results.score,
-                        startedAt: new Date(roundContext.startedAt),
-                        endedAt: new Date(),
-                    },
-                });
-            }
-        } catch (err) {
-            logger.error({ err, sessionId, roundNumber }, "Failed to persist Round to DB");
-        }
     }
 
-    // Broadcast ROUND_RESULT to the submitting client's session room
-    const roundResult: RoundResultPayload = {
-        type: "ROUND_RESULT",
-        roundNumber,
-        verdict: results.verdict,
-        score: results.score,
-        totalScore: history.reduce((sum, r) => sum + r.score, 0),
-        executionTimeMs: results.executionTimeMs,
-    };
-    broadcastToSession(sessionId, roundResult);
+    // ── Record result and advance round state ─────────────────────────────
+    recordResult(
+        sessionId: string,
+        config:    BlitzSessionConfig,
+        passed:    boolean
+    ): RoundState {
+        const state = this.getState(sessionId);
 
-    // Check if this was the last round
-    if (roundNumber >= (session.maxRounds ?? 5)) {
-        // Mark session COMPLETED in Postgres
-        try {
-            await db.gameSession.update({
-                where: { id: sessionId },
-                data: {
-                    status: "COMPLETED",
-                    endedAt: new Date(),
-                },
-            });
-        } catch (err) {
-            logger.error({ err, sessionId }, "Failed to mark session COMPLETED in DB");
+        if (!passed && config.livesEnabled) {
+            state.livesRemaining--;
+            logger.warn({ sessionId, livesRemaining: state.livesRemaining }, "Life deducted");
         }
 
-        // Evict from Redis cache
-        await redis.del(sessionCacheKey(sessionId));
-        await redis.del(roundCacheKey(sessionId));
+        if (config.livesEnabled && state.livesRemaining <= 0) {
+            state.isTerminated     = true;
+            state.terminationCause = "LIVES_EXHAUSTED";
+            return state;
+        }
 
-        const complete: SessionCompletePayload = {
-            type: "SESSION_COMPLETE",
-            totalScore: roundResult.totalScore,
-            roundResults: history,
+        if (state.currentRound >= TOTAL_ROUNDS) {
+            state.isTerminated     = true;
+            state.terminationCause = "COMPLETED";
+            return state;
+        }
+
+        state.currentRound++;
+        return state;
+    }
+
+    // ── Evaluate a submission ─────────────────────────────────────────────
+    async evaluateAnswer(args: {
+        sessionId:   string;
+        userId:      string;
+        challengeId: string;
+        answer:      string;
+    }): Promise<EvaluateAnswerResult> {
+        const { sessionId, userId, challengeId, answer } = args;
+        const session = await this.sessionService.getSession(sessionId);
+        if (!session) throw new Error(`Session not found: ${sessionId}`);
+        const config = session.config;
+
+        // TODO: replace with real validation via question-engine
+        const passed = (answer?.trim().length ?? 0) > 0;
+        const points = passed ? 100 : 0;
+
+        const state = this.recordResult(sessionId, config, passed);
+        await this.sessionService.recordRoundScore(sessionId, userId, points);
+        if (!passed && config.livesEnabled) {
+            await this.sessionService.deductLife(sessionId, userId);
+        }
+
+        const updatedSession = await this.sessionService.getSession(sessionId);
+        if (!updatedSession) throw new Error(`Session not found: ${sessionId}`);
+        const serialized = await this.sessionService.serialize(updatedSession);
+        const player = serialized.players.find((p) => p.userId === userId);
+
+        return {
+            userId,
+            challengeId,
+            passed,
+            points,
+            livesRemaining: config.livesEnabled ? player?.livesRemaining : undefined,
+            roundState: {
+                currentRound:     state.currentRound,
+                isTerminated:     state.isTerminated,
+                terminationCause: state.terminationCause,
+            },
+            players: serialized.players,
         };
-        broadcastToSession(sessionId, complete);
-
-        // Clean up in-memory history
-        sessionRoundHistory.delete(sessionId);
-        logger.info({ sessionId }, "Session complete");
-    } else {
-        // Start next round after a 3-second breather
-        setTimeout(() => {
-            startRound(sessionId, roundNumber + 1).catch((err) =>
-                logger.error({ err, sessionId }, "Failed to start next round")
-            );
-        }, 3_000);
     }
-}
 
-// ---------------------------------------------------------------------------
-// Helpers — used by session.service.ts
-// ---------------------------------------------------------------------------
+    // ── Prepare ROUND_START payload ───────────────────────────────────────
+    async prepareNextRound(sessionId: string): Promise<PrepareNextRoundPayload> {
+        const session = await this.sessionService.getSession(sessionId);
+        if (!session) throw new Error(`Session not found: ${sessionId}`);
+        const config = session.config;
 
-/**
- * Retrieve current round context from Redis (used by submission handler)
- */
-export async function getRoundChallenge(sessionId: string): Promise<{
-    challengeId: string;
-    language: string;
-    timeLimitMs: number;
-    startedAt: number;
-    roundNumber: number;
-} | null> {
-    const redis = await getRedisClient();
-    const raw = await redis.get(roundCacheKey(sessionId));
-    return raw ? JSON.parse(raw) : null;
-}
+        let state = roundStates.get(sessionId);
+        if (!state) {
+            state = this.initSession(sessionId, config);
+        }
 
-function clearSessionTimers(sessionId: string) {
-    const refs = timers.get(sessionId) ?? [];
-    for (const ref of refs) {
-        clearTimeout(ref);
+        const challenge  = await this.fetchChallenge(sessionId, config);
+        const serialized = await this.sessionService.serialize(session);
+
+        return {
+            roundNumber: state.currentRound,
+            totalRounds: config.totalRounds,
+            challenge,
+            players: serialized.players,
+        };
     }
-    timers.delete(sessionId);
+
+    /** Emit ROUND_START to session room; used by socket handler when all players joined / ready. */
+    async startRound(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
+        const payload = await this.prepareNextRound(sessionId);
+        io.to(sessionId).emit("ROUND_START", payload);
+        await this.sessionService.updateSession(sessionId, { currentRound: roundNumber, status: "ACTIVE" });
+        logger.info({ sessionId, roundNumber }, "ROUND_START emitted");
+    }
+
+    /** Handle SUBMIT_ANSWER: evaluate, emit ROUND_RESULT; if terminated emit SESSION_END and cleanup, else start next round. */
+    async handleSubmission(
+        io: SocketServer,
+        sessionId: string,
+        userId: string,
+        answer: string,
+        roundNumber: number
+    ): Promise<void> {
+        const state = this.getState(sessionId);
+        const challengeId = state.usedChallengeIds[roundNumber - 1] ?? state.usedChallengeIds[state.usedChallengeIds.length - 1];
+        const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
+        io.to(sessionId).emit("ROUND_RESULT", result);
+        if (result.roundState.isTerminated) {
+            io.to(sessionId).emit("SESSION_END", {
+                reason: result.roundState.terminationCause ?? "COMPLETED",
+                players: result.players,
+            });
+            this.cleanup(sessionId);
+            logger.info({ sessionId }, "Session ended");
+        } else {
+            await this.startRound(io, sessionId, result.roundState.currentRound);
+        }
+    }
+
+    cleanup(sessionId: string): void {
+        roundStates.delete(sessionId);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    private resolveCategory(state: RoundState, config: BlitzSessionConfig): BlitzCategory {
+        if (config.sessionType === "TIMER") {
+            return config.category!;
+        }
+        const pool = [...LIVE_CATEGORY_POOL] as LiveCategory[];
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    private resolveTimeLimit(sessionType: BlitzSessionConfig["sessionType"], round: number): number {
+        if (sessionType === "TIMER") {
+            return Math.max(20_000, 60_000 - (round - 1) * 5_000);
+        }
+        return 45_000;
+    }
 }

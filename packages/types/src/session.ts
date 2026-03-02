@@ -1,47 +1,53 @@
-// ─── Session Types ───────────────────────────────────────────────────
 import { z } from "zod";
 
-export const SessionTypeEnum = z.enum(["TIMER", "LIVE"]);
-export const PlayerFormatEnum = z.enum(["SINGLE", "DUAL"]);
-export const SessionStatusEnum = z.enum([
-  "LOBBY",
-  "ACTIVE",
-  "PAUSED",
-  "COMPLETED",
-  "ABANDONED",
-]);
-export const GameModeEnum = z.enum(["ARCADE", "STORY"]);
+export type PlayerFormat = "SINGLE" | "DUAL";
+export type SessionType  = "TIMER" | "LIVE";
 
-export type SessionType = z.infer<typeof SessionTypeEnum>;
-export type PlayerFormat = z.infer<typeof PlayerFormatEnum>;
-export type SessionStatus = z.infer<typeof SessionStatusEnum>;
-export type GameMode = z.infer<typeof GameModeEnum>;
 
-// ─── Create Session Request ─────────────────────────────────────────
-export const CreateSessionSchema = z.object({
-  mode: GameModeEnum,
-  sessionType: SessionTypeEnum.optional(),
-  playerFormat: PlayerFormatEnum.default("SINGLE"),
-  category: z.string().optional(),
-  language: z.string().optional(),
-});
-export type CreateSessionRequest = z.infer<typeof CreateSessionSchema>;
+export type TimerCategory = "MISSING_LINK" | "BOTTLENECK" | "TRACING";
 
-// ─── Session Response ────────────────────────────────────────────────
-export const SessionResponseSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string(),
-  mode: GameModeEnum,
-  sessionType: SessionTypeEnum.nullable(),
-  playerFormat: PlayerFormatEnum,
-  category: z.string().nullable(),
-  language: z.string().nullable(),
-  status: SessionStatusEnum,
-  totalScore: z.number().int(),
-  livesRemaining: z.number().int().nullable(),
-  currentRound: z.number().int(),
-  maxRounds: z.number().int(),
-  startedAt: z.string().datetime(),
-  endedAt: z.string().datetime().nullable(),
-});
-export type SessionResponse = z.infer<typeof SessionResponseSchema>;
+export type LiveCategory  = TimerCategory | "SYNTAX_ERROR";
+
+
+export type BlitzCategory = LiveCategory;
+
+export const LIVE_CATEGORY_POOL: LiveCategory[] = [
+    "MISSING_LINK",
+    "BOTTLENECK",
+    "TRACING",
+    "SYNTAX_ERROR",
+];
+
+export const TOTAL_ROUNDS = 5;
+export const LIVE_MODE_INITIAL_LIVES = 3; 
+
+
+export const CreateSessionSchema = z
+    .object({
+        mode:         z.literal("ARCADE"),
+        playerFormat: z.enum(["SINGLE", "DUAL"]),
+        sessionType:  z.enum(["TIMER", "LIVE"]),
+        category:     z.enum(["MISSING_LINK", "BOTTLENECK", "TRACING"]).nullable(),
+        userId:       z.string().min(1),
+    })
+    .refine(
+        (d) => !(d.sessionType === "TIMER" && d.category === null),
+        { message: "Timer Mode requires a category", path: ["category"] }
+    );
+
+export type CreateSessionPayload = z.infer<typeof CreateSessionSchema>;
+
+export interface BlitzSessionConfig {
+    playerFormat: PlayerFormat;
+    sessionType:  SessionType;
+    category:     TimerCategory | null;
+    livesEnabled: boolean;
+    lives:        number;
+    totalRounds:  number;
+}
+
+export interface WaitingRoomEntry {
+    userId:    string;
+    payload:   CreateSessionPayload;
+    queuedAt:  number; 
+}

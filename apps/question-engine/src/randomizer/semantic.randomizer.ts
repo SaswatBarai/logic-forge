@@ -1,111 +1,93 @@
-import { SemanticTokenMap } from "@logicforge/types";
-import { TOKEN_POOLS, TokenSynonymPool } from "./token-maps";
+// apps/question-engine/src/randomizer/semantic.randomizer.ts
 
-/**
- * randomizeChallenge - Semantic Content Randomization Layer
- * 
- * Replaces specified function names and variable names with randomly generated 
- * synonyms to defeat LLM semantic pattern matching while retaining exact logic structure.
- */
+import { SemanticTokenMap } from "@logicforge/types";
+import { TOKEN_POOLS }      from "./token-maps";
+
 export function randomizeChallenge(challengeData: any) {
-    // If no semantic tokens defined, return unmodified
     if (!challengeData.semanticTokens || Object.keys(challengeData.semanticTokens).length === 0) {
         return challengeData;
     }
 
-    const tokens = challengeData.semanticTokens as SemanticTokenMap;
+    const tokens      = challengeData.semanticTokens as SemanticTokenMap;
     const assignments: Record<string, string> = {};
 
-    // For each defined token in the challenge, select a random synonym from the pool
     for (const [originalName, tokenMeta] of Object.entries(tokens)) {
         let pool: string[];
 
         if (tokenMeta.context && TOKEN_POOLS[tokenMeta.context as keyof typeof TOKEN_POOLS]) {
             pool = TOKEN_POOLS[tokenMeta.context as keyof typeof TOKEN_POOLS];
         } else {
-            // Fallback pools
             pool = tokenMeta.type === "function"
                 ? TOKEN_POOLS.GENERIC_FUNCTIONS
                 : TOKEN_POOLS.GENERIC_VARIABLES;
         }
 
         const randomWord = pool[Math.floor(Math.random() * pool.length)];
-
-        // Convert to target language convention (e.g. camelCase vs snake_case)
-        const formatted = formatToConvention(randomWord, challengeData.language, tokenMeta.type);
-
-        // Ensure we don't accidentally reuse a word if multiple tokens exist
+        const formatted  = formatToConvention(randomWord, challengeData.language, tokenMeta.type);
         assignments[originalName] = preserveUniqueness(formatted, assignments);
     }
 
-    // Find & Replace across all string fields where code/text lives
-    const randomizedChallenge = { ...challengeData };
+    const randomized = { ...challengeData };
 
-    // Replace in title and description
-    randomizedChallenge.title = applyTokenReplacement(randomizedChallenge.title, assignments);
-    randomizedChallenge.description = applyTokenReplacement(randomizedChallenge.description, assignments);
+    randomized.title       = applyReplacement(randomized.title,       assignments);
+    randomized.description = applyReplacement(randomized.description, assignments);
+    randomized.codeTemplate = applyReplacementCode(randomized.codeTemplate, assignments);
 
-    // Replace in code template
-    randomizedChallenge.codeTemplate = applyTokenReplacementCodeMode(randomizedChallenge.codeTemplate, assignments);
-
-    // Replace in test cases (input output strings might contain variable names)
-    if (Array.isArray(randomizedChallenge.testCases)) {
-        randomizedChallenge.testCases = randomizedChallenge.testCases.map((tc: any) => ({
+    if (Array.isArray(randomized.testCases)) {
+        randomized.testCases = randomized.testCases.map((tc: any) => ({
             ...tc,
-            input: applyTokenReplacement(tc.input, assignments),
-            expectedOutput: applyTokenReplacement(tc.expectedOutput, assignments)
+            input:          applyReplacement(tc.input,          assignments),
+            expectedOutput: applyReplacement(tc.expectedOutput, assignments),
         }));
     }
 
-    return randomizedChallenge;
+    // Strip internal fields before sending to client
+    const { solution, semanticTokens, ...safeChallenge } = randomized;
+
+    return safeChallenge;
 }
 
-function applyTokenReplacement(text: string, assignments: Record<string, string>): string {
+function applyReplacement(text: string, assignments: Record<string, string>): string {
     if (!text) return text;
     let result = text;
-    for (const [originalName, newName] of Object.entries(assignments)) {
-        // Basic global replace
-        const regex = new RegExp(`\\b${originalName}\\b`, 'g');
-        result = result.replace(regex, newName);
+    for (const [original, replacement] of Object.entries(assignments)) {
+        // ✅ Single \\b = \b word boundary in the compiled regex
+        const regex = new RegExp(`\\b${escapeRegex(original)}\\b`, "g");
+        result = result.replace(regex, replacement);
     }
     return result;
 }
 
-// Slightly more careful regex for code replacements
-function applyTokenReplacementCodeMode(code: string, assignments: Record<string, string>): string {
+function applyReplacementCode(code: string, assignments: Record<string, string>): string {
     if (!code) return code;
     let result = code;
-    for (const [originalName, newName] of Object.entries(assignments)) {
-        // Only replace whole words that aren't part of other identifiers
-        // This regex looks for word boundaries
-        const regex = new RegExp(`\\b${originalName}\\b`, 'g');
-        result = result.replace(regex, newName);
+    for (const [original, replacement] of Object.entries(assignments)) {
+        const regex = new RegExp(`\\b${escapeRegex(original)}\\b`, "g");
+        result = result.replace(regex, replacement);
     }
     return result;
 }
 
-
-function formatToConvention(word: string, language: string, type: string): string {
-    if (language === 'PYTHON') {
-        // Typically snake_case
-        return word.toLowerCase().replace(/([A-Z])/g, "_$1").replace(/^_/, "");
-    } else {
-        // Java/C++ Typically camelCase
-        return type === "class"
-            ? word.charAt(0).toUpperCase() + word.slice(1) // PascalCase
-            : word.charAt(0).toLowerCase() + word.slice(1); // camelCase
-    }
+// Escape special regex chars in token names (e.g. if a token ever has _ or $)
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function preserveUniqueness(candidate: string, existingAssignments: Record<string, string>): string {
-    const existingValues = Object.values(existingAssignments);
-    let finalWord = candidate;
-    let counter = 1;
-
-    while (existingValues.includes(finalWord)) {
-        finalWord = `${candidate}${counter}`;
-        counter++;
+function formatToConvention(word: string, language: string, type: string): string {
+    if (language === "PYTHON") {
+        return word.toLowerCase().replace(/([A-Z])/g, "_$1").replace(/^_/, "");
     }
+    return type === "class"
+        ? word.charAt(0).toUpperCase() + word.slice(1)  // PascalCase
+        : word.charAt(0).toLowerCase() + word.slice(1); // camelCase
+}
 
-    return finalWord;
+function preserveUniqueness(candidate: string, existing: Record<string, string>): string {
+    const values = Object.values(existing);
+    let final    = candidate;
+    let counter  = 1;
+    while (values.includes(final)) {
+        final = `${candidate}${counter++}`;
+    }
+    return final;
 }

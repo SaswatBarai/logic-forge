@@ -6,17 +6,17 @@ import { useGameStore } from "@/store/game-store";
 import { ResultsScreen } from "@/components/game/results-screen";
 
 export default function ResultsPage() {
-    const status = useGameStore((s) => s.status);
+    const sessionStatus = useGameStore((s) => s.sessionStatus);
     const router = useRouter();
 
     // If user navigates here without a completed session, redirect home
     useEffect(() => {
-        if (status !== "COMPLETED") {
+        if (sessionStatus !== "COMPLETED") {
             router.push("/arcade");
         }
-    }, [status, router]);
+    }, [sessionStatus, router]);
 
-    if (status !== "COMPLETED") return null;
+    if (sessionStatus !== "COMPLETED") return null;
 
     return <ResultsScreen />;
 }

@@ -1,0 +1,59 @@
+[
+  {
+    "category": "STATE_TRACING",
+    "difficulty": "EASY",
+    "language": "PYTHON",
+    "title": "Trace the Counter",
+    "description": "Trace the execution and determine the final value of `counter` when called with `n = 4`.",
+    "codeTemplate": "def process_signal(n):\n    counter = 0\n    for i in range(n):\n        if i % 2 == 0:\n            counter += i\n        else:\n            counter -= 1\n    return counter",
+    "solution": { "answers": ["3"] },
+    "testCases": [
+      { "input": "4", "expectedOutput": "3" },
+      { "input": "6", "expectedOutput": "7" }
+    ],
+    "hints": ["Trace each iteration: i=0 (+0), i=1 (-1), i=2 (+2), i=3 (-1)."],
+    "semanticTokens": {
+      "counter": { "type": "variable", "context": "ACCUMULATOR" },
+      "process_signal": { "type": "function", "context": "PROCESS" }
+    },
+    "timeLimitMs": 45000,
+    "active": true
+  },
+  {
+    "category": "STATE_TRACING",
+    "difficulty": "MEDIUM",
+    "language": "JAVA",
+    "title": "Stack State Trace",
+    "description": "What does `buffer.peek()` return after all push/pop operations complete?",
+    "codeTemplate": "Stack<Integer> buffer = new Stack<>();\nbuffer.push(10);\nbuffer.push(20);\nbuffer.pop();\nbuffer.push(30);\nbuffer.push(40);\nbuffer.pop();\n// What is buffer.peek() ?",
+    "solution": { "answers": ["30"] },
+    "testCases": [
+      { "input": "trace", "expectedOutput": "30" }
+    ],
+    "hints": ["A stack is LIFO — trace each push/pop in order."],
+    "semanticTokens": {
+      "buffer": { "type": "variable", "context": "DATA_STRUCTURE" }
+    },
+    "timeLimitMs": 45000,
+    "active": true
+  },
+  {
+    "category": "STATE_TRACING",
+    "difficulty": "HARD",
+    "language": "CPP",
+    "title": "Recursive Call Trace",
+    "description": "Trace the recursive calls and determine the return value of `compute(4)`.",
+    "codeTemplate": "int compute(int n) {\n    if (n <= 1) return n;\n    return compute(n - 1) + compute(n - 2);\n}\n// compute(4) = ?",
+    "solution": { "answers": ["3"] },
+    "testCases": [
+      { "input": "4", "expectedOutput": "3" },
+      { "input": "6", "expectedOutput": "8" }
+    ],
+    "hints": ["This is Fibonacci. compute(4) = compute(3) + compute(2)."],
+    "semanticTokens": {
+      "compute": { "type": "function", "context": "RECURSIVE" }
+    },
+    "timeLimitMs": 60000,
+    "active": true
+  }
+]

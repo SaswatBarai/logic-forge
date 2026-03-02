@@ -1,0 +1,42 @@
+[
+  {
+    "category": "THE_BOTTLENECK_BREAKER",
+    "difficulty": "MEDIUM",
+    "language": "JAVA",
+    "title": "Two Sum Optimization",
+    "description": "This O(N²) function will timeout on large inputs. Identify the correct data structure to achieve O(N).",
+    "codeTemplate": "public boolean hasPairSum(int[] measurements, int target) {\n    for (int i = 0; i < measurements.length; i++) {\n        for (int j = i + 1; j < measurements.length; j++) {\n            if (measurements[i] + measurements[j] == target) return true;\n        }\n    }\n    return false;\n}",
+    "solution": { "dataStructure": "HashSet", "timeComplexity": "O(N)", "spaceComplexity": "O(N)" },
+    "testCases": [
+      { "input": "[1,2,3,9], 8", "expectedOutput": "false" },
+      { "input": "[1,2,4,4], 8", "expectedOutput": "true" }
+    ],
+    "hints": ["For each x, check if target - x was already seen."],
+    "semanticTokens": {
+      "measurements": { "type": "variable", "context": "COLLECTION" },
+      "hasPairSum": { "type": "function", "context": "PROCESS" }
+    },
+    "timeLimitMs": 60000,
+    "active": true
+  },
+  {
+    "category": "THE_BOTTLENECK_BREAKER",
+    "difficulty": "HARD",
+    "language": "PYTHON",
+    "title": "Find Duplicates",
+    "description": "This O(N²) duplicate finder is too slow. Refactor to O(N) using the right data structure.",
+    "codeTemplate": "def find_duplicates(eventLog):\n    duplicates = []\n    for i in range(len(eventLog)):\n        for j in range(i + 1, len(eventLog)):\n            if eventLog[i] == eventLog[j] and eventLog[i] not in duplicates:\n                duplicates.append(eventLog[i])\n    return duplicates",
+    "solution": { "dataStructure": "set", "timeComplexity": "O(N)", "spaceComplexity": "O(N)" },
+    "testCases": [
+      { "input": "[1,2,3,2,4,3]", "expectedOutput": "[2,3]" },
+      { "input": "[1,2,3]", "expectedOutput": "[]" }
+    ],
+    "hints": ["Track seen elements in a set; add to result on second encounter."],
+    "semanticTokens": {
+      "eventLog": { "type": "variable", "context": "COLLECTION" },
+      "find_duplicates": { "type": "function", "context": "SEARCH" }
+    },
+    "timeLimitMs": 60000,
+    "active": true
+  }
+]
