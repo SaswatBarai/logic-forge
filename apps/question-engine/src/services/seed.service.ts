@@ -11,7 +11,12 @@ export async function seedChallenges() {
     const dataDir = getDataDir();
 
     // Read all json files dynamically or explicitly
-    const files = ["missing-link.json"]; // Start with one category
+    const files = [
+        "missing-link.json",
+        "state-tracing.json",
+        "bottleneck-breaker.json",
+        "syntax-error.json",
+    ];
 
     let totalImported = 0;
 

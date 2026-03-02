@@ -15,18 +15,15 @@ const VERDICT_COLORS: Record<string, string> = {
 };
 
 export function ResultsScreen() {
+    const totalScore = useGameStore((s) => s.totalScore);
     const roundHistory = useGameStore((s) => s.roundHistory);
-    const totalRounds = useGameStore((s) => s.totalRounds);
-    const players = useGameStore((s) => s.players);
-
-    // Derive scores from the players array (same source as the arena HUD)
-    const myScore = players[0]?.score ?? 0;
-    const opponentScore = players[1]?.score ?? 0;
+    const maxRounds = useGameStore((s) => s.maxRounds);
+    const opponentScore = useGameStore((s) => s.opponentScore);
 
     const correctCount = roundHistory.filter((r) => r.verdict === "CORRECT").length;
 
-    const isWin = myScore > opponentScore;
-    const isDraw = myScore === opponentScore;
+    const isWin = totalScore > opponentScore;
+    const isDraw = totalScore === opponentScore;
 
     const OutcomeIcon = isWin ? Trophy : isDraw ? Medal : Swords;
     const outcomeColor = isWin ? "text-primary" : isDraw ? "text-muted-foreground" : "text-destructive";
@@ -65,8 +62,8 @@ export function ResultsScreen() {
                     transition={{ duration: 0.6, delay: 0.15 }}
                 >
                     {[
-                        { label: "Your Score", value: myScore, color: "bg-accent", textColor: "text-foreground" },
-                        { label: "Correct", value: `${correctCount}/${totalRounds}`, color: "bg-primary", textColor: "text-foreground" },
+                        { label: "Your Score", value: totalScore, color: "bg-accent", textColor: "text-foreground" },
+                        { label: "Correct", value: `${correctCount}/${maxRounds}`, color: "bg-primary", textColor: "text-foreground" },
                         { label: "Opponent", value: opponentScore, color: "bg-destructive", textColor: "text-foreground" },
                     ].map((stat) => (
                         <div
@@ -103,10 +100,8 @@ export function ResultsScreen() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {roundHistory.map((r, index) => (
-                                    // Use `index` as a tie-breaker to avoid duplicate-key warnings
-                                    // when the same roundNumber is pushed more than once (edge-case during reconnects)
-                                    <tr key={`${r.roundNumber}-${index}`} className="border-t border-border hover:bg-muted/50 transition-colors">
+                                {roundHistory.map((r) => (
+                                    <tr key={r.roundNumber} className="border-t border-border hover:bg-muted/50 transition-colors">
                                         <td className="px-5 py-3 font-mono font-bold">#{r.roundNumber}</td>
                                         <td className={`px-5 py-3 font-black uppercase text-xs tracking-wider ${VERDICT_COLORS[r.verdict] ?? "text-muted-foreground"}`}>
                                             {r.verdict}

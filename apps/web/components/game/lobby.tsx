@@ -1,36 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useGameEngine } from "@/hooks/use-game-engine";
 import { Loader2, Swords, CheckCircle2 } from "lucide-react";
 
 export function MatchLobby() {
-    const { sessionStatus, sessionId, config, readyUp } = useGameEngine();
+    const { status, sessionId, readyUp } = useGameEngine();
     const [isReady, setIsReady] = useState(false);
-    const autoReadyFiredRef = useRef(false);
 
-    // Bug C fix: SINGLE player has no opponent to wait for — auto-fire PLAYER_READY
-    // after 1.5s so the lobby shows briefly then the game starts automatically.
-    useEffect(() => {
-        if (
-            config?.playerFormat !== "SINGLE" ||
-            !sessionId ||
-            sessionStatus === "ACTIVE" ||
-            autoReadyFiredRef.current
-        ) return;
-
-        const timer = setTimeout(() => {
-            autoReadyFiredRef.current = true;
-            setIsReady(true);
-            readyUp();
-            console.info("[Lobby] Auto-fired PLAYER_READY for SINGLE player");
-        }, 1500);
-
-        return () => clearTimeout(timer);
-    }, [sessionId, config?.playerFormat, sessionStatus, readyUp]);
-
-    if (sessionStatus === "ACTIVE") {
+    if (status === "ACTIVE") {
         return null;
     }
 
@@ -38,8 +17,6 @@ export function MatchLobby() {
         setIsReady(true);
         readyUp();
     };
-
-    const isSingle = config?.playerFormat === "SINGLE";
 
     return (
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 lg:py-24 max-w-7xl mx-auto w-full">
@@ -61,17 +38,13 @@ export function MatchLobby() {
                 {/* Title */}
                 <div className="text-center space-y-3">
                     <h2 className="text-4xl md:text-5xl font-black uppercase tracking-tighter">
-                        {isSingle
-                            ? "Solo Challenge Ready"
-                            : sessionId ? "Opponent Found" : "Searching Arena"}
+                        {sessionId ? "Opponent Found" : "Searching Arena"}
                     </h2>
                     <div className="border-2 border-foreground p-4 bg-card shadow-retro max-w-md mx-auto">
                         <p className="text-sm font-medium leading-relaxed">
-                            {isSingle
-                                ? "Arena loading. Your challenge begins in a moment…"
-                                : sessionId
-                                    ? "Preparing arena context. The duel is about to begin — get ready."
-                                    : "Scanning the matchmaker queue for opponents of similar skill level…"}
+                            {sessionId
+                                ? "Preparing arena context. The duel is about to begin — get ready."
+                                : "Scanning the matchmaker queue for opponents of similar skill level…"}
                         </p>
                     </div>
                 </div>
@@ -90,13 +63,14 @@ export function MatchLobby() {
                     </motion.div>
                 )}
 
-                {/* Ready button — only for DUAL players; SINGLE auto-fires via useEffect */}
-                {sessionId && !isSingle && (
+                {/* Ready button */}
+                {sessionId && (
                     <motion.button
-                        className={`arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 ${isReady
-                            ? "bg-accent text-accent-foreground cursor-default"
-                            : "bg-primary"
-                            }`}
+                        className={`arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 ${
+                            isReady
+                                ? "bg-accent text-accent-foreground cursor-default"
+                                : "bg-primary"
+                        }`}
                         whileHover={!isReady ? {
                             scale: 1.05,
                             boxShadow: "6px 6px 0px 0px hsl(var(--navy))",

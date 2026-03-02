@@ -4,32 +4,29 @@ import { useGameStore } from "@/store/game-store";
 import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle, Clock, Zap } from "lucide-react";
 
-type Verdict = "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
-
-const VERDICT_CONFIG: Record<Verdict | string, {
+const VERDICT_CONFIG: Record<string, {
     icon: React.ElementType;
     color: string;
     bg: string;
     label: string;
-    sub?: string;
 }> = {
     CORRECT: { icon: CheckCircle2, color: "text-accent", bg: "bg-accent", label: "Correct!" },
-    PARTIAL: { icon: Zap, color: "text-primary", bg: "bg-primary", label: "Partial Credit", sub: "+50 pts" },
     INCORRECT: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Incorrect" },
     TIMEOUT: { icon: Clock, color: "text-primary", bg: "bg-primary", label: "Time's Up" },
     COMPILE_ERROR: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Compile Error" },
     RUNTIME_ERROR: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Runtime Error" },
+    PARTIAL: { icon: Zap, color: "text-primary", bg: "bg-primary", label: "Partial Credit" },
 };
 
 export function RoundResultOverlay() {
-    // Use the actual store field names: lastResult + showResultOverlay + dismissResultOverlay
-    const lastResult = useGameStore((s) => s.lastResult);
-    const showResultOverlay = useGameStore((s) => s.showResultOverlay);
-    const dismiss = useGameStore((s) => s.dismissResultOverlay);
+    const lastRoundResult = useGameStore((s) => s.lastRoundResult);
+    const status = useGameStore((s) => s.status);
+    const clearRoundResult = useGameStore((s) => s.clearRoundResult);
 
     const [countdown, setCountdown] = useState(3);
 
-    const visible = showResultOverlay && !!lastResult;
+    // Show overlay only when there's a result and we're in inter-round LOBBY status
+    const visible = !!lastRoundResult && status === "LOBBY";
 
     useEffect(() => {
         if (!visible) return;
@@ -39,26 +36,19 @@ export function RoundResultOverlay() {
             setCountdown((prev) => {
                 if (prev <= 1) {
                     clearInterval(interval);
-                    return 0; // pure — no side effects here
+                    clearRoundResult();
+                    return 0;
                 }
                 return prev - 1;
             });
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [visible]);
+    }, [visible, clearRoundResult]);
 
-    // Trigger the global store update in the commit phase, not the render phase
-    useEffect(() => {
-        if (visible && countdown === 0) {
-            dismiss();
-        }
-    }, [countdown, visible, dismiss]);
+    if (!visible || !lastRoundResult) return null;
 
-    if (!visible || !lastResult) return null;
-
-    const verdict = (lastResult.verdict ?? (lastResult.passed ? "CORRECT" : "INCORRECT")) as Verdict;
-    const config = VERDICT_CONFIG[verdict] ?? VERDICT_CONFIG.INCORRECT;
+    const config = VERDICT_CONFIG[lastRoundResult.verdict] ?? VERDICT_CONFIG.INCORRECT;
     const Icon = config.icon;
 
     return (
@@ -76,19 +66,14 @@ export function RoundResultOverlay() {
                 <div className="text-center space-y-2">
                     <h2 className={`text-4xl font-black uppercase tracking-tighter ${config.color}`}>{config.label}</h2>
                     <p className="text-sm font-medium text-muted-foreground">
-                        {lastResult.executionTimeMs > 0
-                            ? `Executed in ${lastResult.executionTimeMs}ms`
-                            : verdict === "COMPILE_ERROR" ? "Syntax / compile error"
-                                : verdict === "RUNTIME_ERROR" ? "Program crashed at runtime"
-                                    : verdict === "TIMEOUT" ? "Execution time limit exceeded"
-                                        : "No execution data"}
+                        Round {lastRoundResult.roundNumber} · {lastRoundResult.executionTimeMs}ms
                     </p>
                 </div>
 
                 {/* Score delta */}
-                {lastResult.points > 0 && (
+                {lastRoundResult.score > 0 && (
                     <div className="bg-accent/10 border-2 border-foreground px-6 py-2 shadow-retro-sm text-accent font-black text-xl">
-                        +{lastResult.points} pts
+                        +{lastRoundResult.score} pts
                     </div>
                 )}
 

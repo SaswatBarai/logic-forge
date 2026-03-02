@@ -133,18 +133,34 @@ export class RoundService {
 
         // ── Map short name → DB enum before calling QE ────────────────────
         const qeCategory = CATEGORY_TO_QE[category];
+        const isTracing = qeCategory === "STATE_TRACING";
         const language = pickLanguage();
 
         const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
         url.searchParams.set("category", qeCategory);
-        url.searchParams.set("language", language);
+        // STATE_TRACING code is read-only — don't filter by language
+        if (!isTracing) {
+            url.searchParams.set("language", language);
+        }
 
         // Exclude already-used challenges this session
         if (state.usedChallengeIds.length > 0) {
             url.searchParams.set("excludeIds", state.usedChallengeIds.join(","));
         }
 
-        const res = await fetch(url.toString());
+        let res = await fetch(url.toString());
+
+        // Fallback: if no unused challenges remain, allow repeats
+        if (!res.ok && state.usedChallengeIds.length > 0) {
+            logger.warn({ sessionId, category }, "No unused challenges — retrying without excludeIds");
+            const fallbackUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
+            fallbackUrl.searchParams.set("category", qeCategory);
+            if (!isTracing) {
+                fallbackUrl.searchParams.set("language", language);
+            }
+            res = await fetch(fallbackUrl.toString());
+        }
+
         if (!res.ok) {
             const text = await res.text();
             throw new Error(`Question engine error ${res.status}: ${text}`);
@@ -175,7 +191,7 @@ export class RoundService {
         };
     }
 
-    // ── Record result and advance round state ─────────────────────────────
+    //Record result and advance round state ─────────────────────────────
     recordResult(
         sessionId: string,
         config: BlitzSessionConfig,
@@ -216,7 +232,7 @@ export class RoundService {
         if (!session) throw new Error(`Session not found: ${sessionId}`);
         const config = session.config;
 
-        // ── 1. Fetch testCases + language from question-engine ─────────────
+        // ── 1. Fetch testCases + language + category from question-engine ──
         let verdict = "INCORRECT";
         let executionTimeMs = 0;
 
@@ -232,6 +248,7 @@ export class RoundService {
                 const challengeBody = await challengeRes.json() as {
                     success: boolean;
                     data: {
+                        category: string;
                         language: string;
                         testCases: Array<{ input: string; expectedOutput: string }>;
                         timeLimitMs?: number;
@@ -239,32 +256,51 @@ export class RoundService {
                 };
                 const challenge = challengeBody.data;
 
-                // ── 2. POST to code-runner ─────────────────────────────────
-                const runRes = await fetch(`${CODE_RUNNER_URL}/api/v1/execute`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        language: challenge.language,
-                        code: answer,
-                        testCases: challenge.testCases ?? [],
-                        timeLimitMs: challenge.timeLimitMs ?? 5000,
-                        memoryLimitKb: 262144,
-                    }),
-                });
+                // ── 2. Branch: STATE_TRACING → direct text comparison ─────
+                if (challenge.category === "STATE_TRACING") {
+                    const userAnswer = answer.trim().toLowerCase();
+                    const testCases = challenge.testCases ?? [];
 
-                if (runRes.ok) {
-                    const runBody = await runRes.json() as {
-                        verdict: string;
-                        totalExecutionTimeMs: number;
-                    };
-                    verdict = runBody.verdict;    // CORRECT | PARTIAL | INCORRECT | COMPILE_ERROR | RUNTIME_ERROR | TIMEOUT
-                    executionTimeMs = runBody.totalExecutionTimeMs ?? 0;
+                    if (testCases.length > 0) {
+                        // Compare against the first test case's expectedOutput
+                        const expected = testCases[0].expectedOutput.trim().toLowerCase();
+                        verdict = userAnswer === expected ? "CORRECT" : "INCORRECT";
+                    } else {
+                        verdict = "INCORRECT";
+                    }
+
+                    logger.info(
+                        { sessionId, challengeId, category: "STATE_TRACING", verdict },
+                        "STATE_TRACING answer evaluated via direct comparison"
+                    );
                 } else {
-                    logger.error({ sessionId, challengeId, status: runRes.status }, "Code-runner returned error");
-                    verdict = "RUNTIME_ERROR";
+                    // ── Non-tracing: POST to code-runner ──────────────────
+                    const runRes = await fetch(`${CODE_RUNNER_URL}/api/v1/execute`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            language: challenge.language,
+                            code: answer,
+                            testCases: challenge.testCases ?? [],
+                            timeLimitMs: challenge.timeLimitMs ?? 5000,
+                            memoryLimitKb: 262144,
+                        }),
+                    });
+
+                    if (runRes.ok) {
+                        const runBody = await runRes.json() as {
+                            verdict: string;
+                            totalExecutionTimeMs: number;
+                        };
+                        verdict = runBody.verdict;
+                        executionTimeMs = runBody.totalExecutionTimeMs ?? 0;
+                    } else {
+                        logger.error({ sessionId, challengeId, status: runRes.status }, "Code-runner returned error");
+                        verdict = "RUNTIME_ERROR";
+                    }
                 }
             } catch (err) {
-                logger.error({ err, sessionId, challengeId }, "Failed to evaluate via code-runner — falling back to INCORRECT");
+                logger.error({ err, sessionId, challengeId }, "Failed to evaluate — falling back to INCORRECT");
                 verdict = "RUNTIME_ERROR";
             }
         }
@@ -427,13 +463,21 @@ export class RoundService {
                 if (isLastPending) {
                     if (result.roundState.isTerminated) {
                         io.to(sessionId).emit("SESSION_END", {
-                            reason: result.roundState.terminationCause ?? "COMPLETED",
-                            players: result.players,
+                            cause: result.roundState.terminationCause ?? "COMPLETED",
+                            finalState: { players: result.players },
                         });
                         this.cleanup(sessionId);
                         logger.info({ sessionId }, "Session ended after timer expiry");
                     } else {
-                        await this.startRound(io, sessionId, result.roundState.currentRound);
+                        // Delay so clients can display the result overlay (~3.5s)
+                        const nextRound = result.roundState.currentRound;
+                        setTimeout(async () => {
+                            try {
+                                await this.startRound(io, sessionId, nextRound);
+                            } catch (err) {
+                                logger.error({ err, sessionId }, "Error starting next round after timer expiry delay");
+                            }
+                        }, 3500);
                     }
                 }
             } catch (err) {
@@ -484,13 +528,21 @@ export class RoundService {
 
             if (result.roundState.isTerminated) {
                 io.to(sessionId).emit("SESSION_END", {
-                    reason: result.roundState.terminationCause ?? "COMPLETED",
-                    players: result.players,
+                    cause: result.roundState.terminationCause ?? "COMPLETED",
+                    finalState: { players: result.players },
                 });
                 this.cleanup(sessionId);
                 logger.info({ sessionId }, "Session ended");
             } else {
-                await this.startRound(io, sessionId, result.roundState.currentRound);
+                // Delay so clients can display the result overlay (~3.5s)
+                const nextRound = result.roundState.currentRound;
+                setTimeout(async () => {
+                    try {
+                        await this.startRound(io, sessionId, nextRound);
+                    } catch (err) {
+                        logger.error({ err, sessionId }, "Error starting next round after delay");
+                    }
+                }, 3500);
             }
         }
         // else: wait for other player(s) or timer expiry
