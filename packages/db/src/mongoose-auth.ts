@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import type { Adapter } from "next-auth/adapters";
+import type { Adapter, AdapterUser, AdapterAccount, AdapterSession } from "next-auth/adapters";
 
 const globalForMongoose = globalThis as unknown as {
   authConn: mongoose.Connection | undefined;
@@ -13,12 +13,10 @@ async function getAuthConnection(): Promise<mongoose.Connection> {
     );
   }
 
-  // Return cached connection immediately if already established
   if (globalForMongoose.authConn) {
     return globalForMongoose.authConn;
   }
 
-  // Cache the promise so concurrent calls share one connection attempt
   if (!globalForMongoose.authConnPromise) {
     globalForMongoose.authConnPromise = mongoose
       .connect(process.env.MONGO_URL, {
@@ -44,6 +42,10 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, sparse: true },
     emailVerified: Date,
     image: String,
+
+    // ✅ New profile fields
+    displayName: { type: String, trim: true },
+    bio: { type: String, trim: true, maxlength: 400 },
   },
   { timestamps: true, collection: "users" }
 );
@@ -77,37 +79,54 @@ const SessionSchema = new mongoose.Schema(
 
 // --- Lazy models (created after connection) ---
 
-type Doc = mongoose.Document & Record<string, unknown>;
+type Doc = mongoose.Document & Record<string, any>;
 let UserModel: mongoose.Model<Doc>;
 let AccountModel: mongoose.Model<Doc>;
 let SessionModel: mongoose.Model<Doc>;
 
 export async function getModels() {
   await getAuthConnection();
-  if (!UserModel) {
-    // Use the default mongoose.connection which was established by mongoose.connect()
-    const conn = mongoose.connection;
-    // Check if models already exist on the connection to avoid "Cannot overwrite model" error
-    UserModel = (conn.models.User as unknown as mongoose.Model<Doc>) || conn.model("User", UserSchema) as unknown as mongoose.Model<Doc>;
-    AccountModel = (conn.models.Account as unknown as mongoose.Model<Doc>) || conn.model("Account", AccountSchema) as unknown as mongoose.Model<Doc>;
-    SessionModel = (conn.models.Session as unknown as mongoose.Model<Doc>) || conn.model("Session", SessionSchema) as unknown as mongoose.Model<Doc>;
+  
+  // Ensure connection is ready (state 1 = connected)
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error("MongoDB connection not ready");
   }
-  return { UserModel, AccountModel, SessionModel };
+
+  if (!UserModel) {
+    const conn = mongoose.connection;
+    
+    // Safe model registration with null checks
+    UserModel = conn.models.User || conn.model("User", UserSchema);
+    AccountModel = conn.models.Account || conn.model("Account", AccountSchema);
+    SessionModel = conn.models.Session || conn.model("Session", SessionSchema);
+  }
+  
+  return { 
+    UserModel: UserModel as mongoose.Model<Doc>,
+    AccountModel: AccountModel as mongoose.Model<Doc>,
+    SessionModel: SessionModel as mongoose.Model<Doc>
+  };
 }
 
-function toAdapterUser(doc: mongoose.Document | null): import("next-auth/adapters").AdapterUser | null {
+
+function toAdapterUser(doc: mongoose.Document | null): AdapterUser | null {
   if (!doc) return null;
   const o = doc.toObject ? doc.toObject() : doc;
+
   return {
     id: String(o._id),
     name: o.name ?? null,
     email: o.email ?? "",
     emailVerified: o.emailVerified ?? null,
     image: o.image ?? null,
-  };
+
+    // These extra fields will be merged into `user` that NextAuth passes
+    displayName: o.displayName ?? undefined,
+    bio: o.bio ?? undefined,
+  } as AdapterUser & { displayName?: string; bio?: string };
 }
 
-function toAdapterAccount(doc: mongoose.Document | null): import("next-auth/adapters").AdapterAccount | null {
+function toAdapterAccount(doc: mongoose.Document | null): AdapterAccount | null {
   if (!doc) return null;
   const o = doc.toObject ? doc.toObject() : doc;
   return {
@@ -126,7 +145,7 @@ function toAdapterAccount(doc: mongoose.Document | null): import("next-auth/adap
   };
 }
 
-function toAdapterSession(doc: mongoose.Document | null): import("next-auth/adapters").AdapterSession | null {
+function toAdapterSession(doc: mongoose.Document | null): AdapterSession | null {
   if (!doc) return null;
   const o = doc.toObject ? doc.toObject() : doc;
   return {
@@ -136,9 +155,9 @@ function toAdapterSession(doc: mongoose.Document | null): import("next-auth/adap
   };
 }
 
-
 export function getMongooseAuthAdapter(): Adapter {
   return {
+    // --- Users ---
     async createUser(user) {
       try {
         const { UserModel } = await getModels();
@@ -147,6 +166,9 @@ export function getMongooseAuthAdapter(): Adapter {
           email: user.email ?? undefined,
           emailVerified: user.emailVerified ?? undefined,
           image: user.image ?? undefined,
+          // allow creating with displayName/bio if provided later
+          displayName: (user as any).displayName ?? undefined,
+          bio: (user as any).bio ?? undefined,
         });
         return toAdapterUser(doc)!;
       } catch (e) {
@@ -154,24 +176,42 @@ export function getMongooseAuthAdapter(): Adapter {
         throw e;
       }
     },
+
     async getUser(id) {
       const { UserModel } = await getModels();
       if (!mongoose.Types.ObjectId.isValid(id)) return null;
       const doc = await UserModel.findById(id).lean();
       return toAdapterUser(doc as unknown as mongoose.Document);
     },
+
     async getUserByEmail(email) {
       const { UserModel } = await getModels();
       const doc = await UserModel.findOne({ email }).lean();
       return toAdapterUser(doc as unknown as mongoose.Document);
     },
+
     async getUserByAccount({ provider, providerAccountId }) {
       const { AccountModel, UserModel } = await getModels();
       const acc = await AccountModel.findOne({ provider, providerAccountId }).lean();
-      if (!acc || !(acc as { userId?: unknown }).userId) return null;
-      const doc = await UserModel.findById((acc as unknown as { userId: mongoose.Types.ObjectId }).userId).lean();
+      if (!acc || !(acc as any).userId) return null;
+      const doc = await UserModel.findById((acc as any).userId).lean();
       return toAdapterUser(doc as unknown as mongoose.Document);
     },
+
+    async updateUser({ id, ...data }) {
+      const { UserModel } = await getModels();
+      if (!mongoose.Types.ObjectId.isValid(id)) throw new Error("Invalid user id");
+
+      const doc = await UserModel.findByIdAndUpdate(
+        id,
+        { $set: data },
+        { new: true }
+      ).lean();
+
+      return toAdapterUser(doc as unknown as mongoose.Document)!;
+    },
+
+    // --- Accounts ---
     async linkAccount(account) {
       try {
         const { AccountModel } = await getModels();
@@ -194,6 +234,8 @@ export function getMongooseAuthAdapter(): Adapter {
         throw e;
       }
     },
+
+    // --- Sessions ---
     async createSession(session) {
       try {
         const { SessionModel } = await getModels();
@@ -208,18 +250,22 @@ export function getMongooseAuthAdapter(): Adapter {
         throw e;
       }
     },
+
     async getSessionAndUser(sessionToken) {
       const { SessionModel, UserModel } = await getModels();
       const sessionDoc = await SessionModel.findOne({ sessionToken }).lean();
       if (!sessionDoc) return null;
-      const userId = (sessionDoc as unknown as Record<string, unknown>).userId as mongoose.Types.ObjectId;
+
+      const userId = (sessionDoc as any).userId as mongoose.Types.ObjectId;
       const userDoc = await UserModel.findById(userId).lean();
       if (!userDoc) return null;
+
       return {
         session: toAdapterSession(sessionDoc as unknown as mongoose.Document)!,
         user: toAdapterUser(userDoc as unknown as mongoose.Document)!,
       };
     },
+
     async updateSession({ sessionToken, expires }) {
       const { SessionModel } = await getModels();
       const doc = await SessionModel.findOneAndUpdate(
@@ -229,20 +275,11 @@ export function getMongooseAuthAdapter(): Adapter {
       ).lean();
       return toAdapterSession(doc as unknown as mongoose.Document);
     },
+
     async deleteSession(sessionToken) {
       const { SessionModel } = await getModels();
       const doc = await SessionModel.findOneAndDelete({ sessionToken }).lean();
       return doc ? toAdapterSession(doc as unknown as mongoose.Document) : null;
-    },
-    async updateUser({ id, ...data }) {
-      const { UserModel } = await getModels();
-      if (!mongoose.Types.ObjectId.isValid(id)) throw new Error("Invalid user id");
-      const doc = await UserModel.findByIdAndUpdate(
-        id,
-        { $set: data },
-        { new: true }
-      ).lean();
-      return toAdapterUser(doc as unknown as mongoose.Document)!;
     },
   };
 }

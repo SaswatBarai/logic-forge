@@ -69,12 +69,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       allowDangerousEmailAccountLinking: true,
     }),
   ],
-  callbacks: {
-    async session({ session }) {
-      // With database sessions, user.id is populated from the adapter directly
+   callbacks: {
+    async session({ session, user }) {
+      // `user` comes from your Mongo adapter (UserSchema)
+      if (session.user && user) {
+        // make sure client gets the id
+        (session.user as any).id = String((user as any).id ?? (user as any)._id);
+
+        // expose profile fields
+        (session.user as any).displayName =
+          (user as any).displayName || user.name || "";
+
+        (session.user as any).bio = (user as any).bio || "";
+      }
+
       return session;
     },
   },
+
   logger: {
     error(error) {
       console.error("[NEXTAUTH_CRASH]:", error);
