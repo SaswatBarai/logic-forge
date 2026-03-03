@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
@@ -42,24 +41,17 @@ function resolveEditorLanguage(lang?: string): string {
 
 export function GameArena() {
     const { data: session } = useSession();
-    const router = useRouter();
 
     const {
         challenge, submitAnswer,
         sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
-    // ✅ Read sessionStatus for navigation
-    const sessionStatus = useGameStore((s) => s.sessionStatus);
-    const roundHistory  = useGameStore((s) => s.roundHistory);
-    const config        = useGameStore((s) => s.config);
-
     const [code, setCode]                   = useState(challenge?.codeTemplate || "");
     const [mcqSelected, setMcqSelected]     = useState<string | null>(null);
     const [tracingAnswer, setTracingAnswer] = useState("");
     const [isSubmitting, setIsSubmitting]   = useState(false);
 
-    // Reset state when new challenge arrives
     useEffect(() => {
         setCode(challenge?.codeTemplate || "");
         setMcqSelected(null);
@@ -67,16 +59,8 @@ export function GameArena() {
         setIsSubmitting(false);
     }, [challenge?.id]);
 
-    // ✅ Navigate to results when session ends
-    // 3200ms delay lets the overlay countdown (3s) finish first
-    useEffect(() => {
-        if (sessionStatus === "COMPLETED" || sessionStatus === "ABORTED") {
-            const timer = setTimeout(() => {
-                router.push("/results");
-            }, 3200);
-            return () => clearTimeout(timer);
-        }
-    }, [sessionStatus, router]);
+    const roundHistory = useGameStore((s) => s.roundHistory);
+    const config       = useGameStore((s) => s.config);
 
     const isSingle           = config?.playerFormat === "SINGLE";
     const isBlankChallenge   = BLANK_CATEGORIES.has(challenge?.category ?? "");
@@ -126,18 +110,10 @@ export function GameArena() {
           ].filter(Boolean).join("\n")
         : null;
 
+    // ── CHANGE 1: TRACING no longer passes code to canvas ──
     const canvasCodeTemplate = isMcqChallenge
         ? challenge.codeTemplate
         : undefined;
-
-    const challengeKey = `${challenge?.id}-${currentRound}`;
-
-    useEffect(() => {
-        setCode(challenge?.codeTemplate || "");
-        setMcqSelected(null);
-        setTracingAnswer("");
-        setIsSubmitting(false);
-    }, [challengeKey]);
 
     return (
         <>
@@ -195,8 +171,8 @@ export function GameArena() {
                     <ResizablePanel defaultSize={35} minSize={25}>
                         <div className="h-full p-4" style={{ backgroundColor: "hsl(230 40% 10%)" }}>
                             <div className="flex items-center gap-2 mb-3 px-1">
-                                <CopyX className="h-4 w-4 text-slate-500" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                <CopyX className="h-4 w-4 text-slate-300" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">
                                     Secure Brief (Canvas)
                                 </span>
                             </div>
@@ -216,7 +192,7 @@ export function GameArena() {
                             <ResizablePanel defaultSize={isMcqChallenge ? 100 : isTracingChallenge ? 100 : 70}>
                                 <div className="h-full p-4 flex flex-col">
                                     <div className="flex justify-between items-center mb-3 px-1">
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">
                                             {isMcqChallenge
                                                 ? "Select the O(N) Refactor"
                                                 : isTracingChallenge
@@ -251,25 +227,28 @@ export function GameArena() {
                                                 onSelect={setMcqSelected}
                                             />
                                         ) : isTracingChallenge ? (
+                                            // ── CHANGE 2: code on top + answer input below ──
                                             <div className="h-full flex flex-col gap-4">
+
                                                 {/* Read-only code block */}
                                                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950">
                                                     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-700 bg-zinc-900 shrink-0">
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-amber-400">
                                                             ▶ Trace This Code
                                                         </span>
-                                                        <span className="ml-auto text-[9px] text-zinc-500 font-mono">{editorLanguage}</span>
+                                                        <span className="ml-auto text-[9px] text-zinc-400 font-mono">{editorLanguage}</span>
                                                     </div>
                                                     <pre className="flex-1 overflow-auto p-4 text-sm font-mono text-blue-300 whitespace-pre leading-6">
                                                         {challenge.codeTemplate}
                                                     </pre>
                                                 </div>
 
+                                                {/* Divider */}
                                                 <div className="h-px bg-zinc-700 shrink-0" />
 
                                                 {/* Answer input */}
                                                 <div className="shrink-0 flex flex-col items-center gap-3 pb-2">
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-300">
                                                         Enter the final return value
                                                     </p>
                                                     <input
@@ -281,14 +260,14 @@ export function GameArena() {
                                                         className="w-52 text-center text-2xl font-mono font-black bg-transparent border-2 border-zinc-600 px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-400 transition-colors rounded"
                                                         autoFocus
                                                     />
-                                                    <p className="text-[10px] font-mono text-zinc-600">
-                                                        Press <span className="text-zinc-400">Enter</span> or click Submit Answer
+                                                    <p className="text-[10px] font-mono text-zinc-400">
+                                                        Press <span className="text-zinc-300 font-semibold">Enter</span> or click Submit Answer
                                                     </p>
                                                 </div>
+
                                             </div>
                                         ) : (
                                             <CodeEditor
-                                                key={challenge.id}
                                                 language={editorLanguage}
                                                 code={code}
                                                 onChange={(val) => setCode(val || "")}
@@ -313,13 +292,13 @@ export function GameArena() {
                                                 ) : lastEntry ? (
                                                     <XCircle className="h-4 w-4 text-destructive" />
                                                 ) : (
-                                                    <CheckCircle2 className="h-4 w-4 text-slate-600" />
+                                                    <CheckCircle2 className="h-4 w-4 text-slate-500" />
                                                 )}
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">
                                                     Execution Output
                                                 </span>
                                             </div>
-                                            <pre className="whitespace-pre-wrap">
+                                            <pre className="whitespace-pre-wrap text-slate-200">
                                                 {outputContent || "Ready. Write your solution and press 'Run Code'."}
                                             </pre>
                                         </div>

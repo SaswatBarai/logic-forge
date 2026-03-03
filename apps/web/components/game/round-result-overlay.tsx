@@ -30,14 +30,11 @@ export function RoundResultOverlay() {
 
     const isLiveMode  = config?.sessionType === "LIVE";
     const livesEnabled = config?.livesEnabled ?? false;
-    const isLastRound = sessionStatus === "COMPLETED";
 
     const [countdown, setCountdown] = useState(3);
 
     // Visible when overlay flag is set AND session is still active (not completed)
-    let visible = showResultOverlay && !!lastResult && 
-    (sessionStatus === "ACTIVE" || sessionStatus === "COMPLETED");
-
+    const visible = showResultOverlay && !!lastResult && sessionStatus !== "COMPLETED";
 
     useEffect(() => {
         if (!visible) return;
@@ -78,7 +75,7 @@ export function RoundResultOverlay() {
                     <h2 className={`text-4xl font-black uppercase tracking-tighter ${verdictCfg.color}`}>
                         {verdictCfg.label}
                     </h2>
-                    <p className="text-sm font-medium text-muted-foreground">
+                    <p className="text-sm font-semibold text-foreground/85">
                         Round {currentRound} · {lastResult.executionTimeMs > 0 ? `${lastResult.executionTimeMs}ms` : "—"}
                     </p>
                 </div>
@@ -99,18 +96,15 @@ export function RoundResultOverlay() {
                                 className={`size-6 ${i < myLives ? "text-destructive fill-destructive" : "text-muted-foreground"}`}
                             />
                         ))}
-                        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">
+                        <span className="text-xs font-black uppercase tracking-widest text-foreground/85 ml-1">
                             {myLives} remaining
                         </span>
                     </div>
                 )}
 
                 {/* Countdown */}
-                <div className="text-sm font-mono font-bold text-muted-foreground">
-                    {isLastRound
-                        ? <>Going to results in <span className="text-foreground">{countdown}</span>…</>
-                        : <>Next round in <span className="text-foreground">{countdown}</span>…</>
-                    }
+                <div className="text-sm font-mono font-bold text-foreground/85">
+                    Next round in <span className="text-foreground font-black">{countdown}</span>…
                 </div>
 
                 {/* Countdown bar */}
