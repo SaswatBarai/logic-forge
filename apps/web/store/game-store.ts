@@ -212,7 +212,7 @@ export const useGameStore = create<GameState>()(
             s.challenge = payload.challenge;
             s.players = payload.players;
             s.lastResult = null;
-            s.showResultOverlay = false;
+            // s.showResultOverlay = false;
             s.timeRemaining = payload.challenge.timeLimitMs;
         }),
 

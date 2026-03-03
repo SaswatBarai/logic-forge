@@ -37,6 +37,9 @@ export async function getRandomChallenge(query: RandomChallengeQuery) {
     if (category) where.category = category;
     if (difficulty) where.difficulty = difficulty;
     if (language) where.language = language;
+     if (!language) {
+        console.warn("[getRandomChallenge] No language filter — challenge may not match session language");
+    }
     if (excludeIds.length > 0) where.id = { notIn: excludeIds };
 
     const count = await db.challenge.count({ where });

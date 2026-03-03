@@ -197,7 +197,9 @@ export class RoundService {
         url.searchParams.set("category", qeCategory);
         if (!isTracing) url.searchParams.set("language", language);
         if (state.usedChallengeIds.length > 0) {
-            url.searchParams.set("excludeIds", state.usedChallengeIds.join(","));
+            for (const id of state.usedChallengeIds) {
+                url.searchParams.append("excludeIds", id);
+            }
         }
 
         let res = await fetch(url.toString());
@@ -242,26 +244,21 @@ export class RoundService {
     recordResult(sessionId: string, config: BlitzSessionConfig, passed: boolean): RoundState {
         const state = this.getState(sessionId);
 
-        if (!passed && config.livesEnabled) {
-            state.livesRemaining--;
-            logger.warn({ sessionId, livesRemaining: state.livesRemaining }, "Life deducted");
-        }
+        // ✅ Life deduction is handled via Redis in evaluateAnswer() — do NOT touch state.livesRemaining here.
+        // Lives-based termination is also checked there after the Redis deduction.
 
-        if (config.livesEnabled && state.livesRemaining <= 0) {
-            state.isTerminated = true;
-            state.terminationCause = "LIVES_EXHAUSTED";
-            return state;
-        }
-
-        if (state.currentRound >= TOTAL_ROUNDS) {
+        if (state.currentRound >= config.totalRounds) {
+            // ✅ Last round completed — mark terminated, do NOT increment
             state.isTerminated = true;
             state.terminationCause = "COMPLETED";
             return state;
         }
 
+        // Only increment if there are more rounds to play
         state.currentRound++;
         return state;
     }
+
 
     async evaluateAnswer(args: {
         sessionId: string;
@@ -337,6 +334,17 @@ export class RoundService {
         await this.sessionService.recordRoundScore(sessionId, userId, points);
         if (!passed && config.livesEnabled) {
             await this.sessionService.deductLife(sessionId, userId);
+            // ✅ Check lives-based termination from Redis-sourced data (single source of truth)
+            const afterDeduct = await this.sessionService.getSession(sessionId);
+            if (afterDeduct) {
+                const afterSerialized = await this.sessionService.serialize(afterDeduct);
+                const afterPlayer = afterSerialized.players.find((p) => p.userId === userId);
+                if (afterPlayer && afterPlayer.livesRemaining <= 0) {
+                    state.isTerminated = true;
+                    state.terminationCause = "LIVES_EXHAUSTED";
+                    logger.warn({ sessionId, userId, livesRemaining: afterPlayer.livesRemaining }, "Lives exhausted — terminating session");
+                }
+            }
         }
 
         const updatedSession = await this.sessionService.getSession(sessionId);
@@ -448,7 +456,10 @@ export class RoundService {
                         this.cleanup(sessionId);
                     } else {
                         setTimeout(async () => {
-                            try { await this.startRound(io, sessionId, result.roundState.currentRound); }
+                            try {
+                                const liveState = this.getState(sessionId);
+                                await this.startRound(io, sessionId, liveState.currentRound);
+                            }
                             catch (err) { logger.error({ err, sessionId }, "Error starting next round after timer expiry"); }
                         }, 3500);
                     }
@@ -499,7 +510,10 @@ export class RoundService {
                 logger.info({ sessionId }, "Session ended");
             } else {
                 setTimeout(async () => {
-                    try { await this.startRound(io, sessionId, result.roundState.currentRound); }
+                    try {
+                        const liveState = this.getState(sessionId);
+                        await this.startRound(io, sessionId, liveState.currentRound);
+                    }
                     catch (err) { logger.error({ err, sessionId }, "Error starting next round"); }
                 }, 3500);
             }

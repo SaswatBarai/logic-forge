@@ -30,11 +30,14 @@ export function RoundResultOverlay() {
 
     const isLiveMode  = config?.sessionType === "LIVE";
     const livesEnabled = config?.livesEnabled ?? false;
+    const isLastRound = sessionStatus === "COMPLETED";
 
     const [countdown, setCountdown] = useState(3);
 
     // Visible when overlay flag is set AND session is still active (not completed)
-    const visible = showResultOverlay && !!lastResult && sessionStatus !== "COMPLETED";
+    let visible = showResultOverlay && !!lastResult && 
+    (sessionStatus === "ACTIVE" || sessionStatus === "COMPLETED");
+
 
     useEffect(() => {
         if (!visible) return;
@@ -104,7 +107,10 @@ export function RoundResultOverlay() {
 
                 {/* Countdown */}
                 <div className="text-sm font-mono font-bold text-muted-foreground">
-                    Next round in <span className="text-foreground">{countdown}</span>…
+                    {isLastRound
+                        ? <>Going to results in <span className="text-foreground">{countdown}</span>…</>
+                        : <>Next round in <span className="text-foreground">{countdown}</span>…</>
+                    }
                 </div>
 
                 {/* Countdown bar */}

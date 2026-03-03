@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
@@ -41,17 +42,24 @@ function resolveEditorLanguage(lang?: string): string {
 
 export function GameArena() {
     const { data: session } = useSession();
+    const router = useRouter();
 
     const {
         challenge, submitAnswer,
         sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
+    // ✅ Read sessionStatus for navigation
+    const sessionStatus = useGameStore((s) => s.sessionStatus);
+    const roundHistory  = useGameStore((s) => s.roundHistory);
+    const config        = useGameStore((s) => s.config);
+
     const [code, setCode]                   = useState(challenge?.codeTemplate || "");
     const [mcqSelected, setMcqSelected]     = useState<string | null>(null);
     const [tracingAnswer, setTracingAnswer] = useState("");
     const [isSubmitting, setIsSubmitting]   = useState(false);
 
+    // Reset state when new challenge arrives
     useEffect(() => {
         setCode(challenge?.codeTemplate || "");
         setMcqSelected(null);
@@ -59,8 +67,16 @@ export function GameArena() {
         setIsSubmitting(false);
     }, [challenge?.id]);
 
-    const roundHistory = useGameStore((s) => s.roundHistory);
-    const config       = useGameStore((s) => s.config);
+    // ✅ Navigate to results when session ends
+    // 3200ms delay lets the overlay countdown (3s) finish first
+    useEffect(() => {
+        if (sessionStatus === "COMPLETED" || sessionStatus === "ABORTED") {
+            const timer = setTimeout(() => {
+                router.push("/results");
+            }, 3200);
+            return () => clearTimeout(timer);
+        }
+    }, [sessionStatus, router]);
 
     const isSingle           = config?.playerFormat === "SINGLE";
     const isBlankChallenge   = BLANK_CATEGORIES.has(challenge?.category ?? "");
@@ -110,10 +126,18 @@ export function GameArena() {
           ].filter(Boolean).join("\n")
         : null;
 
-    // ── CHANGE 1: TRACING no longer passes code to canvas ──
     const canvasCodeTemplate = isMcqChallenge
         ? challenge.codeTemplate
         : undefined;
+
+    const challengeKey = `${challenge?.id}-${currentRound}`;
+
+    useEffect(() => {
+        setCode(challenge?.codeTemplate || "");
+        setMcqSelected(null);
+        setTracingAnswer("");
+        setIsSubmitting(false);
+    }, [challengeKey]);
 
     return (
         <>
@@ -227,9 +251,7 @@ export function GameArena() {
                                                 onSelect={setMcqSelected}
                                             />
                                         ) : isTracingChallenge ? (
-                                            // ── CHANGE 2: code on top + answer input below ──
                                             <div className="h-full flex flex-col gap-4">
-
                                                 {/* Read-only code block */}
                                                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950">
                                                     <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-700 bg-zinc-900 shrink-0">
@@ -243,7 +265,6 @@ export function GameArena() {
                                                     </pre>
                                                 </div>
 
-                                                {/* Divider */}
                                                 <div className="h-px bg-zinc-700 shrink-0" />
 
                                                 {/* Answer input */}
@@ -264,10 +285,10 @@ export function GameArena() {
                                                         Press <span className="text-zinc-400">Enter</span> or click Submit Answer
                                                     </p>
                                                 </div>
-
                                             </div>
                                         ) : (
                                             <CodeEditor
+                                                key={challenge.id}
                                                 language={editorLanguage}
                                                 code={code}
                                                 onChange={(val) => setCode(val || "")}
