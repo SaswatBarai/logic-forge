@@ -12,6 +12,12 @@ const nextConfig = {
     }
     return config;
   },
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },   // Google
+      { protocol: "https", hostname: "avatars.githubusercontent.com" }, // GitHub
+    ],
+  },
 };
 
 export default nextConfig;
