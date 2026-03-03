@@ -5,10 +5,11 @@ import { useEffect, useRef } from "react";
 interface PromptCanvasProps {
     title: string;
     description: string;
-    codeTemplate?: string;   // ← ADD
+    codeTemplate?: string;
+    codeLabel?: string;   
 }
 
-export function PromptCanvas({ title, description, codeTemplate }: PromptCanvasProps) {
+export function PromptCanvas({ title, description, codeTemplate, codeLabel }: PromptCanvasProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     useEffect(() => {
@@ -61,10 +62,11 @@ export function PromptCanvas({ title, description, codeTemplate }: PromptCanvasP
 
         // ── Code block (only if provided) ──
         if (codeTemplate) {
+            const codeLines = codeTemplate.split("\n");
+            const blockHeight = codeLines.length * 20 + 28;
+
             // Code block background
             ctx.fillStyle = "#18181b";
-            const codeLines = codeTemplate.split("\n");
-            const blockHeight = codeLines.length * 20 + 20;
             ctx.fillRect(16, y, rect.width - 32, blockHeight);
 
             // Code border
@@ -72,23 +74,27 @@ export function PromptCanvas({ title, description, codeTemplate }: PromptCanvasP
             ctx.lineWidth = 1;
             ctx.strokeRect(16, y, rect.width - 32, blockHeight);
 
-            // "Slow code" label
-            ctx.fillStyle = "#ef4444";
+            // Dynamic label — amber for TRACING, red for BOTTLENECK
+            const isTracing = codeLabel?.includes("TRACE");
+            ctx.fillStyle = isTracing ? "#fbbf24" : "#ef4444";
             ctx.font = "bold 11px monospace";
-            ctx.fillText("▶ SLOW CODE (O(N²))", 24, y + 14);
+            ctx.fillText(
+                codeLabel ?? "▶ SLOW CODE (O(N²))",   // ← fallback kept
+                24,
+                y + 14
+            );
             y += 24;
 
             // Code lines
             ctx.font = "13px monospace";
-            ctx.fillStyle = "#86efac";
+            ctx.fillStyle = isTracing ? "#93c5fd" : "#86efac"; // blue for tracing, green for bottleneck
             for (const codeLine of codeLines) {
                 ctx.fillText(codeLine, 24, y + 6);
                 y += 20;
             }
         }
 
-    }, [title, description, codeTemplate]);
-
+    }, [title, description, codeTemplate, codeLabel]); 
     return (
         <div className="w-full h-full relative" style={{ userSelect: "none" }}>
             <canvas

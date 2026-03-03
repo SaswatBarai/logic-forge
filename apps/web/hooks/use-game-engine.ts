@@ -120,13 +120,34 @@ export function useGameEngine() {
             setQueueError(p.message ?? "Failed to join session");
         });
 
-        // ✅ Step 3 — .off() before .on() to prevent listener stacking
         socket.off("SESSION_JOINED").on("SESSION_JOINED",     (p: SessionJoinedPayload)  => applySessionJoined(p));
         socket.off("PLAYER_CONNECTED").on("PLAYER_CONNECTED", (p: { userId: string })    => applyPlayerConnected(p.userId));
         socket.off("ROUND_START").on("ROUND_START",           (p: RoundStartPayload)     => applyRoundStart(p));
         socket.off("ROUND_RESULT").on("ROUND_RESULT",         (p: RoundResultPayload)    => applyRoundResult(p));
         socket.off("TIMER_SYNC").on("TIMER_SYNC",             (p: TimerSyncPayload)      => applyTimerSync(p));
-        socket.off("SESSION_END").on("SESSION_END",           (p: SessionEndPayload)     => applySessionEnd(p));
+
+        // ── FIX: wait for last ROUND_RESULT before applying SESSION_END ──
+        socket.off("SESSION_END").on("SESSION_END", (p: SessionEndPayload) => {
+            const totalRounds = useGameStore.getState().totalRounds;
+
+            const tryApply = (attemptsLeft: number) => {
+                const history = useGameStore.getState().roundHistory;
+                if (history.length >= totalRounds || attemptsLeft <= 0) {
+                    console.info(
+                        `[WS] SESSION_END applying — history: ${history.length}/${totalRounds}, attempts left: ${attemptsLeft}`
+                    );
+                    applySessionEnd(p);
+                } else {
+                    console.warn(
+                        `[WS] SESSION_END waiting for round ${history.length + 1}/${totalRounds} result… (${attemptsLeft} attempts left)`
+                    );
+                    setTimeout(() => tryApply(attemptsLeft - 1), 100);
+                }
+            };
+
+            tryApply(10); // up to 1000ms wait, checking every 100ms
+        });
+
         socket.off("SESSION_ABORTED").on("SESSION_ABORTED",   (p: SessionAbortedPayload) => applySessionAborted(p));
         socket.off("ERROR").on("ERROR",                       (p: { message: string })   => console.error("[WS] Error:", p.message));
 

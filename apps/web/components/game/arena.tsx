@@ -10,10 +10,11 @@ import { McqSelector }        from "./mcq-selector";
 import { PromptCanvas }       from "./prompt-canvas";
 import { TimerBar }           from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
-import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap } from "lucide-react";
+import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap, Eye } from "lucide-react";
 
-const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
-const MCQ_CATEGORIES   = new Set(["THE_BOTTLENECK_BREAKER"]);
+const BLANK_CATEGORIES   = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
+const MCQ_CATEGORIES     = new Set(["THE_BOTTLENECK_BREAKER"]);
+const TRACING_CATEGORIES = new Set(["STATE_TRACING"]);
 
 function extractBlankAnswer(template: string, filledCode: string): string {
     const BLANK = "________";
@@ -46,23 +47,26 @@ export function GameArena() {
         sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
-    const [code, setCode]               = useState(challenge?.codeTemplate || "");
-    const [mcqSelected, setMcqSelected] = useState<string | null>(null);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [code, setCode]                   = useState(challenge?.codeTemplate || "");
+    const [mcqSelected, setMcqSelected]     = useState<string | null>(null);
+    const [tracingAnswer, setTracingAnswer] = useState("");
+    const [isSubmitting, setIsSubmitting]   = useState(false);
 
     useEffect(() => {
         setCode(challenge?.codeTemplate || "");
         setMcqSelected(null);
+        setTracingAnswer("");
         setIsSubmitting(false);
     }, [challenge?.id]);
 
     const roundHistory = useGameStore((s) => s.roundHistory);
     const config       = useGameStore((s) => s.config);
 
-    const isSingle         = config?.playerFormat === "SINGLE";
-    const isBlankChallenge = BLANK_CATEGORIES.has(challenge?.category ?? "");
-    const isMcqChallenge   = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
-    const editorLanguage   = resolveEditorLanguage(challenge?.language);
+    const isSingle           = config?.playerFormat === "SINGLE";
+    const isBlankChallenge   = BLANK_CATEGORIES.has(challenge?.category ?? "");
+    const isMcqChallenge     = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
+    const isTracingChallenge = TRACING_CATEGORIES.has(challenge?.category ?? "");
+    const editorLanguage     = resolveEditorLanguage(challenge?.language);
 
     if (!challenge) return null;
 
@@ -72,7 +76,11 @@ export function GameArena() {
     const myScore   = myPlayer?.score  ?? 0;
     const oppScore  = oppPlayer?.score ?? 0;
 
-    const canSubmit = isMcqChallenge ? !!mcqSelected : true;
+    const canSubmit = isMcqChallenge
+        ? !!mcqSelected
+        : isTracingChallenge
+            ? tracingAnswer.trim().length > 0
+            : true;
 
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id || !canSubmit) return;
@@ -80,7 +88,9 @@ export function GameArena() {
 
         let answer: string;
         if (isMcqChallenge) {
-            answer = mcqSelected!;                              // "A" | "B" | "C" | "D"
+            answer = mcqSelected!;
+        } else if (isTracingChallenge) {
+            answer = tracingAnswer.trim();
         } else if (isBlankChallenge) {
             answer = extractBlankAnswer(challenge.codeTemplate, code);
         } else {
@@ -99,6 +109,11 @@ export function GameArena() {
             lastEntry.executionTimeMs > 0 ? `Execution time: ${lastEntry.executionTimeMs}ms` : null,
           ].filter(Boolean).join("\n")
         : null;
+
+    // ── CHANGE 1: TRACING no longer passes code to canvas ──
+    const canvasCodeTemplate = isMcqChallenge
+        ? challenge.codeTemplate
+        : undefined;
 
     return (
         <>
@@ -126,6 +141,11 @@ export function GameArena() {
                         {isMcqChallenge && (
                             <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary border border-primary px-2 py-0.5">
                                 <Zap className="h-3 w-3" /> Bottleneck · Pick the fastest
+                            </span>
+                        )}
+                        {isTracingChallenge && (
+                            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-400 border border-amber-400 px-2 py-0.5">
+                                <Eye className="h-3 w-3" /> State Tracing · Enter the value
                             </span>
                         )}
                     </div>
@@ -156,7 +176,12 @@ export function GameArena() {
                                     Secure Brief (Canvas)
                                 </span>
                             </div>
-                            <PromptCanvas title={challenge.title} description={challenge.description} />
+                            <PromptCanvas
+                                title={challenge.title}
+                                description={challenge.description}
+                                codeTemplate={canvasCodeTemplate}
+                                codeLabel="▶ SLOW CODE (O(N²))"
+                            />
                         </div>
                     </ResizablePanel>
 
@@ -164,15 +189,17 @@ export function GameArena() {
 
                     <ResizablePanel defaultSize={65}>
                         <ResizablePanelGroup direction="vertical">
-                            <ResizablePanel defaultSize={isMcqChallenge ? 100 : 70}>
+                            <ResizablePanel defaultSize={isMcqChallenge ? 100 : isTracingChallenge ? 100 : 70}>
                                 <div className="h-full p-4 flex flex-col">
                                     <div className="flex justify-between items-center mb-3 px-1">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                                             {isMcqChallenge
                                                 ? "Select the O(N) Refactor"
-                                                : isBlankChallenge
-                                                    ? "Code Editor · Fill in the blank only"
-                                                    : "Code Editor"}
+                                                : isTracingChallenge
+                                                    ? "Trace · Read code, enter the answer below"
+                                                    : isBlankChallenge
+                                                        ? "Code Editor · Fill in the blank only"
+                                                        : "Code Editor"}
                                         </span>
                                         <button
                                             onClick={handleSubmit}
@@ -183,6 +210,8 @@ export function GameArena() {
                                                 <><Loader2 className="h-3.5 w-3.5 animate-spin" />Checking…</>
                                             ) : isMcqChallenge ? (
                                                 <><Zap className="h-3.5 w-3.5" />Submit Pick</>
+                                            ) : isTracingChallenge ? (
+                                                <><Eye className="h-3.5 w-3.5" />Submit Answer</>
                                             ) : (
                                                 <><Play className="h-3.5 w-3.5" />Run Code</>
                                             )}
@@ -191,15 +220,53 @@ export function GameArena() {
 
                                     <div className="flex-1 min-h-0">
                                         {isMcqChallenge ? (
-                                            // ── MCQ: show 4 code options to pick from ──
                                             <McqSelector
                                                 options={challenge.mcqOptions!}
                                                 language={editorLanguage}
                                                 selected={mcqSelected}
                                                 onSelect={setMcqSelected}
                                             />
+                                        ) : isTracingChallenge ? (
+                                            // ── CHANGE 2: code on top + answer input below ──
+                                            <div className="h-full flex flex-col gap-4">
+
+                                                {/* Read-only code block */}
+                                                <div className="flex-1 min-h-0 flex flex-col overflow-hidden rounded border border-zinc-700 bg-zinc-950">
+                                                    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-zinc-700 bg-zinc-900 shrink-0">
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-amber-400">
+                                                            ▶ Trace This Code
+                                                        </span>
+                                                        <span className="ml-auto text-[9px] text-zinc-500 font-mono">{editorLanguage}</span>
+                                                    </div>
+                                                    <pre className="flex-1 overflow-auto p-4 text-sm font-mono text-blue-300 whitespace-pre leading-6">
+                                                        {challenge.codeTemplate}
+                                                    </pre>
+                                                </div>
+
+                                                {/* Divider */}
+                                                <div className="h-px bg-zinc-700 shrink-0" />
+
+                                                {/* Answer input */}
+                                                <div className="shrink-0 flex flex-col items-center gap-3 pb-2">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                                        Enter the final return value
+                                                    </p>
+                                                    <input
+                                                        type="text"
+                                                        value={tracingAnswer}
+                                                        onChange={(e) => setTracingAnswer(e.target.value)}
+                                                        onKeyDown={(e) => e.key === "Enter" && canSubmit && handleSubmit()}
+                                                        placeholder="e.g. 3"
+                                                        className="w-52 text-center text-2xl font-mono font-black bg-transparent border-2 border-zinc-600 px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-400 transition-colors rounded"
+                                                        autoFocus
+                                                    />
+                                                    <p className="text-[10px] font-mono text-zinc-600">
+                                                        Press <span className="text-zinc-400">Enter</span> or click Submit Answer
+                                                    </p>
+                                                </div>
+
+                                            </div>
                                         ) : (
-                                            // ── Normal: editable code editor ──
                                             <CodeEditor
                                                 language={editorLanguage}
                                                 code={code}
@@ -210,8 +277,8 @@ export function GameArena() {
                                 </div>
                             </ResizablePanel>
 
-                            {/* Hide output panel for MCQ — not needed */}
-                            {!isMcqChallenge && (
+                            {/* Hide output panel for MCQ and TRACING */}
+                            {!isMcqChallenge && !isTracingChallenge && (
                                 <>
                                     <ResizableHandle className="h-0.5 bg-foreground/20 hover:bg-primary transition-colors duration-200" />
                                     <ResizablePanel defaultSize={30}>

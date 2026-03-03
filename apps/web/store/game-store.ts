@@ -30,7 +30,7 @@ export interface RoundChallenge {
     timeLimitMs: number | null;
     category?: string;
     language?: string;
-    mcqOptions?: Record<string, string> | null;   
+    mcqOptions?: Record<string, string> | null;
 }
 
 export interface PlayerSnapshot {
@@ -217,7 +217,11 @@ export const useGameStore = create<GameState>()(
         }),
 
         applyRoundResult: (payload) => set((s) => {
-            const roundNum = payload.roundState.currentRound - 1 || s.currentRound;
+            // ✅ FIX: use s.currentRound directly — it's set correctly by applyRoundStart.
+            // The old formula `payload.roundState.currentRound - 1` was off-by-one
+            // on round 5 (last round), saving it as round 4 which already existed,
+            // causing the alreadyRecorded guard to silently drop round 5.
+            const roundNum = s.currentRound;
 
             const alreadyRecorded = s.roundHistory.some(
                 (r) => r.roundNumber === roundNum && r.userId === payload.userId
