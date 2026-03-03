@@ -29,7 +29,8 @@ export interface RoundChallenge {
     hints: unknown;
     timeLimitMs: number | null;
     category?: string;
-    language?: string;        // ← ADDED
+    language?: string;
+    mcqOptions?: Record<string, string> | null;   
 }
 
 export interface PlayerSnapshot {

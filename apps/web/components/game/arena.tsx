@@ -6,33 +6,26 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { useGameEngine } from "@/hooks/use-game-engine";
 import { useGameStore }  from "@/store/game-store";
 import { CodeEditor }         from "./code-editor";
+import { McqSelector }        from "./mcq-selector";
 import { PromptCanvas }       from "./prompt-canvas";
 import { TimerBar }           from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
-import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2 } from "lucide-react";
+import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap } from "lucide-react";
 
-// These categories use fill-in-the-blank — submit only the blank value, not full code
 const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
+const MCQ_CATEGORIES   = new Set(["THE_BOTTLENECK_BREAKER"]);
 
-/**
- * Given the original template (with "________") and the user's edited code,
- * extract only the text that replaced the blank.
- */
 function extractBlankAnswer(template: string, filledCode: string): string {
     const BLANK = "________";
     const blankIdx = template.indexOf(BLANK);
     if (blankIdx === -1) return filledCode;
-
     const before = template.substring(0, blankIdx);
     const after  = template.substring(blankIdx + BLANK.length);
-
     const startIdx = filledCode.indexOf(before);
     if (startIdx === -1) return filledCode;
-
     const valueStart = startIdx + before.length;
-    const endIdx     = after.length > 0 ? filledCode.lastIndexOf(after) : filledCode.length;
+    const endIdx = after.length > 0 ? filledCode.lastIndexOf(after) : filledCode.length;
     if (endIdx === -1 || endIdx <= valueStart) return filledCode;
-
     return filledCode.substring(valueStart, endIdx).trim();
 }
 
@@ -53,11 +46,13 @@ export function GameArena() {
         sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
-    const [code, setCode]                 = useState(challenge?.codeTemplate || "");
+    const [code, setCode]               = useState(challenge?.codeTemplate || "");
+    const [mcqSelected, setMcqSelected] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         setCode(challenge?.codeTemplate || "");
+        setMcqSelected(null);
         setIsSubmitting(false);
     }, [challenge?.id]);
 
@@ -66,6 +61,7 @@ export function GameArena() {
 
     const isSingle         = config?.playerFormat === "SINGLE";
     const isBlankChallenge = BLANK_CATEGORIES.has(challenge?.category ?? "");
+    const isMcqChallenge   = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
     const editorLanguage   = resolveEditorLanguage(challenge?.language);
 
     if (!challenge) return null;
@@ -76,13 +72,20 @@ export function GameArena() {
     const myScore   = myPlayer?.score  ?? 0;
     const oppScore  = oppPlayer?.score ?? 0;
 
+    const canSubmit = isMcqChallenge ? !!mcqSelected : true;
+
     const handleSubmit = () => {
-        if (isSubmitting || !sessionId || !challenge.id) return;
+        if (isSubmitting || !sessionId || !challenge.id || !canSubmit) return;
         setIsSubmitting(true);
 
-        const answer = isBlankChallenge
-            ? extractBlankAnswer(challenge.codeTemplate, code)
-            : code;
+        let answer: string;
+        if (isMcqChallenge) {
+            answer = mcqSelected!;                              // "A" | "B" | "C" | "D"
+        } else if (isBlankChallenge) {
+            answer = extractBlankAnswer(challenge.codeTemplate, code);
+        } else {
+            answer = code;
+        }
 
         submitAnswer(sessionId, challenge.id, answer);
         setTimeout(() => setIsSubmitting(false), 3000);
@@ -120,6 +123,11 @@ export function GameArena() {
                             <Activity className="h-5 w-5 text-primary" />
                             {challenge.title}
                         </h1>
+                        {isMcqChallenge && (
+                            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary border border-primary px-2 py-0.5">
+                                <Zap className="h-3 w-3" /> Bottleneck · Pick the fastest
+                            </span>
+                        )}
                     </div>
 
                     <div className="flex gap-3">
@@ -156,61 +164,80 @@ export function GameArena() {
 
                     <ResizablePanel defaultSize={65}>
                         <ResizablePanelGroup direction="vertical">
-                            <ResizablePanel defaultSize={70}>
+                            <ResizablePanel defaultSize={isMcqChallenge ? 100 : 70}>
                                 <div className="h-full p-4 flex flex-col">
                                     <div className="flex justify-between items-center mb-3 px-1">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                            Code Editor
-                                            {isBlankChallenge && (
-                                                <span className="ml-2 text-primary normal-case">· Fill in the blank only</span>
-                                            )}
+                                            {isMcqChallenge
+                                                ? "Select the O(N) Refactor"
+                                                : isBlankChallenge
+                                                    ? "Code Editor · Fill in the blank only"
+                                                    : "Code Editor"}
                                         </span>
                                         <button
                                             onClick={handleSubmit}
-                                            disabled={isSubmitting}
+                                            disabled={isSubmitting || !canSubmit}
                                             className="arcade-btn bg-primary px-4 py-1.5 border-2 border-foreground shadow-retro-sm text-xs font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50 hover:scale-105 active:scale-95 transition-transform"
                                         >
                                             {isSubmitting ? (
-                                                <><Loader2 className="h-3.5 w-3.5 animate-spin" />Running…</>
+                                                <><Loader2 className="h-3.5 w-3.5 animate-spin" />Checking…</>
+                                            ) : isMcqChallenge ? (
+                                                <><Zap className="h-3.5 w-3.5" />Submit Pick</>
                                             ) : (
                                                 <><Play className="h-3.5 w-3.5" />Run Code</>
                                             )}
                                         </button>
                                     </div>
+
                                     <div className="flex-1 min-h-0">
-                                        <CodeEditor
-                                            language={editorLanguage}
-                                            code={code}
-                                            onChange={(val) => setCode(val || "")}
-                                        />
-                                    </div>
-                                </div>
-                            </ResizablePanel>
-
-                            <ResizableHandle className="h-0.5 bg-foreground/20 hover:bg-primary transition-colors duration-200" />
-
-                            <ResizablePanel defaultSize={30}>
-                                <div
-                                    className="h-full p-4 font-mono text-sm text-slate-300 overflow-y-auto"
-                                    style={{ backgroundColor: "hsl(230 40% 8%)" }}
-                                >
-                                    <div className="flex items-center gap-2 mb-2">
-                                        {lastEntry?.verdict === "CORRECT" ? (
-                                            <CheckCircle2 className="h-4 w-4 text-accent" />
-                                        ) : lastEntry ? (
-                                            <XCircle className="h-4 w-4 text-destructive" />
+                                        {isMcqChallenge ? (
+                                            // ── MCQ: show 4 code options to pick from ──
+                                            <McqSelector
+                                                options={challenge.mcqOptions!}
+                                                language={editorLanguage}
+                                                selected={mcqSelected}
+                                                onSelect={setMcqSelected}
+                                            />
                                         ) : (
-                                            <CheckCircle2 className="h-4 w-4 text-slate-600" />
+                                            // ── Normal: editable code editor ──
+                                            <CodeEditor
+                                                language={editorLanguage}
+                                                code={code}
+                                                onChange={(val) => setCode(val || "")}
+                                            />
                                         )}
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                                            Execution Output
-                                        </span>
                                     </div>
-                                    <pre className="whitespace-pre-wrap">
-                                        {outputContent || "Ready. Write your solution and press 'Run Code'."}
-                                    </pre>
                                 </div>
                             </ResizablePanel>
+
+                            {/* Hide output panel for MCQ — not needed */}
+                            {!isMcqChallenge && (
+                                <>
+                                    <ResizableHandle className="h-0.5 bg-foreground/20 hover:bg-primary transition-colors duration-200" />
+                                    <ResizablePanel defaultSize={30}>
+                                        <div
+                                            className="h-full p-4 font-mono text-sm text-slate-300 overflow-y-auto"
+                                            style={{ backgroundColor: "hsl(230 40% 8%)" }}
+                                        >
+                                            <div className="flex items-center gap-2 mb-2">
+                                                {lastEntry?.verdict === "CORRECT" ? (
+                                                    <CheckCircle2 className="h-4 w-4 text-accent" />
+                                                ) : lastEntry ? (
+                                                    <XCircle className="h-4 w-4 text-destructive" />
+                                                ) : (
+                                                    <CheckCircle2 className="h-4 w-4 text-slate-600" />
+                                                )}
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                                    Execution Output
+                                                </span>
+                                            </div>
+                                            <pre className="whitespace-pre-wrap">
+                                                {outputContent || "Ready. Write your solution and press 'Run Code'."}
+                                            </pre>
+                                        </div>
+                                    </ResizablePanel>
+                                </>
+                            )}
                         </ResizablePanelGroup>
                     </ResizablePanel>
                 </ResizablePanelGroup>

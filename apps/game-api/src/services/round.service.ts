@@ -1,4 +1,3 @@
-
 import type { Server as SocketServer } from "socket.io";
 import { logger } from "../app";
 import {
@@ -7,20 +6,16 @@ import {
     LiveCategory,
     LIVE_CATEGORY_POOL,
     TOTAL_ROUNDS,
-    TimerCategory,
 } from "@logicforge/types";
 import type { SessionService } from "./session.service";
 
-const QUESTION_ENGINE_URL =
-    process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
-
-const CODE_RUNNER_URL =
-    process.env.CODE_RUNNER_URL || "http://localhost:3004";
+const QUESTION_ENGINE_URL = process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
+const CODE_RUNNER_URL     = process.env.CODE_RUNNER_URL     || "http://localhost:3004";
 
 const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
     "MISSING_LINK": "THE_MISSING_LINK",
-    "BOTTLENECK": "THE_BOTTLENECK_BREAKER",
-    "TRACING": "STATE_TRACING",
+    "BOTTLENECK":   "THE_BOTTLENECK_BREAKER",
+    "TRACING":      "STATE_TRACING",
     "SYNTAX_ERROR": "SYNTAX_ERROR_DETECTION",
 };
 
@@ -52,8 +47,9 @@ interface ChallengeApiResponse {
     category: string;
     language: string;
     difficulty: string;
-    solution?: { answers: string[] };
+    solution?: { type?: string; answers?: string[]; correct?: string };
     testCases?: Array<{ input: string; expectedOutput: string }>;
+    mcqOptions?: Record<string, string> | null;
 }
 
 export interface RoundChallenge {
@@ -64,7 +60,8 @@ export interface RoundChallenge {
     hints: unknown;
     timeLimitMs: number | null;
     category: string;
-    language?: string;    
+    language?: string;
+    mcqOptions?: Record<string, string> | null;   // A/B/C/D options for BOTTLENECK
 }
 
 export interface EvaluateAnswerResult {
@@ -90,35 +87,28 @@ export interface PrepareNextRoundPayload {
     players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
 }
 
-const roundStates = new Map<string, RoundState>();
-const roundTimers = new Map<string, ReturnType<typeof setInterval>>();
+const roundStates  = new Map<string, RoundState>();
+const roundTimers  = new Map<string, ReturnType<typeof setInterval>>();
 
-// ── Answer evaluation helpers ─────────────────────────────────────────────────
+// ── Answer normalization ──────────────────────────────────────────────────────
 
-/**
- * Categories where verdict = direct string match against solution.answers.
- * No code execution needed — sending a fragment to the compiler always fails.
- */
 const DIRECT_MATCH_CATEGORIES = new Set([
     "THE_MISSING_LINK",
     "SYNTAX_ERROR_DETECTION",
+    "THE_BOTTLENECK_BREAKER",   // MCQ answer is just "A"/"B"/"C"/"D"
 ]);
 
 function normalizeAnswer(s: string): string {
     return s.trim().toLowerCase().replace(/\s+/g, "");
 }
-function evaluateDirectMatch(
-    answer: string,
-    solutionAnswers: string[]
-): "CORRECT" | "INCORRECT" {
+
+function evaluateDirectMatch(answer: string, solutionAnswers: string[]): "CORRECT" | "INCORRECT" {
     const normalized = normalizeAnswer(answer);
-    const matched = solutionAnswers
-        .map(normalizeAnswer)
-        .includes(normalized);
-    return matched ? "CORRECT" : "INCORRECT";
+    return solutionAnswers.map(normalizeAnswer).includes(normalized)
+        ? "CORRECT" : "INCORRECT";
 }
 
-// ── Code wrapping for BOTTLENECK (full execution) ─────────────────────────────
+// ── Code wrapping helpers (used only for future non-MCQ BOTTLENECK) ───────────
 
 function extractPythonFunctionName(template: string): string {
     const match = template.match(/def\s+(\w+)\s*\(/);
@@ -129,19 +119,14 @@ function buildPythonExecutable(template: string, answer: string): string {
     const filled = template.replace("________", answer.trim());
     const fnName = extractPythonFunctionName(filled);
     return `
-import sys
-import ast
-
+import sys, ast
 ${filled}
-
 input_data = sys.stdin.read().strip()
-# Support comma-separated args like "[1,3,5], 5"
 try:
     args = [ast.literal_eval(x.strip()) for x in input_data.split(",", 1) if x.strip()]
 except Exception:
     args = [ast.literal_eval(input_data)]
-result = ${fnName}(*args)
-print(result)
+print(${fnName}(*args))
 `.trim();
 }
 
@@ -150,18 +135,10 @@ function buildJavaExecutable(template: string, answer: string): string {
     return `
 import java.util.*;
 import java.util.stream.*;
-
 public class Main {
     ${filled}
-
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        // Harness: for BOTTLENECK challenges the method is called and result printed
-        // Input parsing is delegated to the template's main — print OK as sentinel
-        System.out.println("OK");
-    }
-}
-`.trim();
+    public static void main(String[] args) { System.out.println("OK"); }
+}`.trim();
 }
 
 function buildCppExecutable(template: string, answer: string): string {
@@ -169,26 +146,15 @@ function buildCppExecutable(template: string, answer: string): string {
     return `
 #include <bits/stdc++.h>
 using namespace std;
-
 ${filled}
-
-int main() {
-    cout << "OK" << endl;
-    return 0;
-}
-`.trim();
+int main() { cout << "OK" << endl; return 0; }`.trim();
 }
 
-function buildExecutableCode(
-    language: string,
-    template: string,
-    answer: string,
-): string {
+function buildExecutableCode(language: string, template: string, answer: string): string {
     const lang = language.toUpperCase();
     if (lang === "PYTHON") return buildPythonExecutable(template, answer);
     if (lang === "JAVA")   return buildJavaExecutable(template, answer);
     if (lang === "CPP")    return buildCppExecutable(template, answer);
-    // Fallback: inject answer as-is
     return template.replace("________", answer.trim());
 }
 
@@ -219,22 +185,17 @@ export class RoundService {
         return state;
     }
 
-    async fetchChallenge(
-        sessionId: string,
-        config: BlitzSessionConfig
-    ): Promise<RoundChallenge> {
+    async fetchChallenge(sessionId: string, config: BlitzSessionConfig): Promise<RoundChallenge> {
         const state = this.getState(sessionId);
         const category = this.resolveCategory(state, config);
 
         const qeCategory = CATEGORY_TO_QE[category];
-        const isTracing = qeCategory === "STATE_TRACING";
-        const language = pickLanguage();
+        const isTracing  = qeCategory === "STATE_TRACING";
+        const language   = pickLanguage();
 
         const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
         url.searchParams.set("category", qeCategory);
-        if (!isTracing) {
-            url.searchParams.set("language", language);
-        }
+        if (!isTracing) url.searchParams.set("language", language);
         if (state.usedChallengeIds.length > 0) {
             url.searchParams.set("excludeIds", state.usedChallengeIds.join(","));
         }
@@ -245,9 +206,7 @@ export class RoundService {
             logger.warn({ sessionId, category }, "No unused challenges — retrying without excludeIds");
             const fallbackUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
             fallbackUrl.searchParams.set("category", qeCategory);
-            if (!isTracing) {
-                fallbackUrl.searchParams.set("language", language);
-            }
+            if (!isTracing) fallbackUrl.searchParams.set("language", language);
             res = await fetch(fallbackUrl.toString());
         }
 
@@ -267,25 +226,20 @@ export class RoundService {
             "Challenge fetched"
         );
 
-        const timeLimitMs = this.resolveTimeLimit(config.sessionType, state.currentRound);
-
-      return {
+        return {
             id: data.id,
             title: data.title,
             description: data.description,
             codeTemplate: data.codeTemplate,
             hints: data.hints ?? null,
-            timeLimitMs,
+            timeLimitMs: this.resolveTimeLimit(config.sessionType, state.currentRound),
             category: data.category,
-            language: data.language,   
+            language: data.language,
+            mcqOptions: data.mcqOptions ?? null,
         };
     }
 
-    recordResult(
-        sessionId: string,
-        config: BlitzSessionConfig,
-        passed: boolean
-    ): RoundState {
+    recordResult(sessionId: string, config: BlitzSessionConfig, passed: boolean): RoundState {
         const state = this.getState(sessionId);
 
         if (!passed && config.livesEnabled) {
@@ -317,95 +271,65 @@ export class RoundService {
     }): Promise<EvaluateAnswerResult> {
         const { sessionId, userId, challengeId, answer } = args;
         logger.info({ answer, challengeId }, "RAW ANSWER RECEIVED");
+
         const session = await this.sessionService.getSession(sessionId);
         if (!session) throw new Error(`Session not found: ${sessionId}`);
         const config = session.config;
 
-        let verdict = "INCORRECT";
+        let verdict        = "INCORRECT";
         let executionTimeMs = 0;
 
         const isAutoSubmit = !answer || answer.trim().length === 0;
 
         if (!isAutoSubmit) {
             try {
+                // Always fetch full challenge (with solution) from QE for evaluation
                 const challengeRes = await fetch(`${QUESTION_ENGINE_URL}/api/v1/challenges/${challengeId}`);
-                if (!challengeRes.ok) {
-                    throw new Error(`QE returned ${challengeRes.status} for challenge ${challengeId}`);
-                }
-                const challengeBody = await challengeRes.json() as {
-                    success: boolean;
-                    data: ChallengeApiResponse;
-                };
+                if (!challengeRes.ok) throw new Error(`QE returned ${challengeRes.status}`);
+
+                const challengeBody = await challengeRes.json() as { success: boolean; data: ChallengeApiResponse };
                 const challenge = challengeBody.data;
 
-                // ── STATE_TRACING: compare against first testCase expectedOutput ──
+                // ── STATE_TRACING: compare against testCase expectedOutput ────────
                 if (challenge.category === "STATE_TRACING") {
-                    const testCases = challenge.testCases ?? [];
-                    const expected = testCases[0]?.expectedOutput ?? "";
+                    const expected = challenge.testCases?.[0]?.expectedOutput ?? "";
                     verdict = normalizeAnswer(answer) === normalizeAnswer(expected)
-                        ? "CORRECT"
-                        : "INCORRECT";
+                        ? "CORRECT" : "INCORRECT";
                     logger.info({ sessionId, challengeId, verdict }, "STATE_TRACING evaluated");
 
-                // ── MISSING_LINK / SYNTAX_ERROR: compare against solution.answers ──
-                } else if (DIRECT_MATCH_CATEGORIES.has(challenge.category)) {
-                    const solutionAnswers = challenge.solution?.answers ?? [];
-                    if (solutionAnswers.length === 0) {
-                        logger.warn({ sessionId, challengeId, category: challenge.category },
-                            "No solution.answers found — defaulting INCORRECT");
-                        verdict = "INCORRECT";
+                // ── BOTTLENECK (MCQ): compare answer letter A/B/C/D ──────────────
+                } else if (challenge.category === "THE_BOTTLENECK_BREAKER") {
+                    const sol = challenge.solution as any;
+                    if (sol?.type === "MCQ") {
+                        const correct = (sol.correct as string ?? "").trim().toUpperCase();
+                        const submitted = answer.trim().toUpperCase();
+                        verdict = submitted === correct ? "CORRECT" : "INCORRECT";
+                        logger.info(
+                            { sessionId, challengeId, submitted, correct, verdict },
+                            "BOTTLENECK MCQ evaluated"
+                        );
                     } else {
+                        // Fallback: direct answer match if not MCQ type
+                        const solutionAnswers = sol?.answers ?? [];
                         verdict = evaluateDirectMatch(answer, solutionAnswers);
                     }
-                    logger.info(
-                        { sessionId, challengeId, category: challenge.category, verdict },
-                        "Direct-match evaluation"
-                    );
 
-                // ── BOTTLENECK: full code execution via code-runner ──────────────
-                } else {
-                    const executableCode = buildExecutableCode(
-                        challenge.language,
-                        challenge.codeTemplate,
-                        answer,
-                    );
-
-                    logger.debug({ sessionId, challengeId, executableCode }, "Sending to code-runner");
-
-                    const runRes = await fetch(`${CODE_RUNNER_URL}/api/v1/execute`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            language: challenge.language,
-                            code: executableCode,
-                            testCases: challenge.testCases ?? [],
-                            timeLimitMs: challenge.timeLimitMs ?? 5000,
-                            memoryLimitKb: 262144,
-                        }),
-                    });
-
-                    if (runRes.ok) {
-                        const runBody = await runRes.json() as {
-                            verdict: string;
-                            totalExecutionTimeMs: number;
-                        };
-                        verdict = runBody.verdict;
-                        executionTimeMs = runBody.totalExecutionTimeMs ?? 0;
-                    } else {
-                        logger.error({ sessionId, challengeId, status: runRes.status }, "Code-runner error");
-                        verdict = "RUNTIME_ERROR";
-                    }
+                // ── MISSING_LINK / SYNTAX_ERROR: direct string match ─────────────
+                } else if (DIRECT_MATCH_CATEGORIES.has(challenge.category)) {
+                    const solutionAnswers = (challenge.solution as any)?.answers ?? [];
+                    verdict = solutionAnswers.length > 0
+                        ? evaluateDirectMatch(answer, solutionAnswers)
+                        : "INCORRECT";
+                    logger.info({ sessionId, challengeId, category: challenge.category, verdict }, "Direct-match evaluation");
                 }
             } catch (err) {
-                logger.error({ err, sessionId, challengeId }, "Evaluation failed — RUNTIME_ERROR");
+                logger.error({ err, sessionId, challengeId }, "Evaluation failed");
                 verdict = "RUNTIME_ERROR";
             }
         }
 
         const passed = verdict === "CORRECT";
-        const points =
-            verdict === "CORRECT" ? 100 :
-            verdict === "PARTIAL" ? 50 : 0;
+        const points = verdict === "CORRECT" ? 100 : verdict === "PARTIAL" ? 50 : 0;
 
         logger.info({ sessionId, userId, challengeId, verdict, points, executionTimeMs }, "Answer evaluated");
 
@@ -443,13 +367,11 @@ export class RoundService {
         const config = session.config;
 
         let state = roundStates.get(sessionId);
-        if (!state) {
-            state = this.initSession(sessionId, config);
-        }
+        if (!state) state = this.initSession(sessionId, config);
 
         state.submittedUserIds = new Set<string>();
 
-        const challenge = await this.fetchChallenge(sessionId, config);
+        const challenge  = await this.fetchChallenge(sessionId, config);
         const serialized = await this.sessionService.serialize(session);
 
         return {
@@ -462,7 +384,6 @@ export class RoundService {
 
     async startRound(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
         this.clearRoundTimer(sessionId);
-
         const payload = await this.prepareNextRound(sessionId);
         io.to(sessionId).emit("ROUND_START", payload);
         await this.sessionService.updateSession(sessionId, { currentRound: roundNumber, status: "ACTIVE" });
@@ -473,26 +394,13 @@ export class RoundService {
         }
     }
 
-    private startRoundTimer(
-        io: SocketServer,
-        sessionId: string,
-        roundNumber: number,
-        timeLimitMs: number
-    ): void {
-        const startAt = Date.now();
-        const endAt = startAt + timeLimitMs;
-
+    private startRoundTimer(io: SocketServer, sessionId: string, roundNumber: number, timeLimitMs: number): void {
+        const endAt = Date.now() + timeLimitMs;
         logger.info({ sessionId, roundNumber, timeLimitMs }, "Round timer started");
 
         const handle = setInterval(async () => {
-            const now = Date.now();
-            const remainingMs = Math.max(0, endAt - now);
-
-            io.to(sessionId).emit("TIMER_SYNC", {
-                roundNumber,
-                remainingMs,
-                serverTimestamp: now,
-            });
+            const remainingMs = Math.max(0, endAt - Date.now());
+            io.to(sessionId).emit("TIMER_SYNC", { roundNumber, remainingMs, serverTimestamp: Date.now() });
 
             if (remainingMs <= 0) {
                 this.clearRoundTimer(sessionId);
@@ -504,11 +412,7 @@ export class RoundService {
         roundTimers.set(sessionId, handle);
     }
 
-    private async handleTimerExpiry(
-        io: SocketServer,
-        sessionId: string,
-        roundNumber: number
-    ): Promise<void> {
+    private async handleTimerExpiry(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
         const session = await this.sessionService.getSession(sessionId);
         if (!session) return;
 
@@ -516,7 +420,6 @@ export class RoundService {
         if (!state) return;
 
         const pending = session.players.filter((uid) => !state.submittedUserIds.has(uid));
-
         if (pending.length === 0) {
             logger.info({ sessionId, roundNumber }, "Timer expired but all players already submitted");
             return;
@@ -531,13 +434,7 @@ export class RoundService {
         for (const userId of pending) {
             try {
                 state.submittedUserIds.add(userId);
-                const result = await this.evaluateAnswer({
-                    sessionId,
-                    userId,
-                    challengeId,
-                    answer: "",
-                });
-
+                const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer: "" });
                 io.to(sessionId).emit("ROUND_RESULT", result);
                 logger.info({ sessionId, userId, roundNumber }, "Auto-submitted (timer expired)");
 
@@ -550,13 +447,9 @@ export class RoundService {
                         });
                         this.cleanup(sessionId);
                     } else {
-                        const nextRound = result.roundState.currentRound;
                         setTimeout(async () => {
-                            try {
-                                await this.startRound(io, sessionId, nextRound);
-                            } catch (err) {
-                                logger.error({ err, sessionId }, "Error starting next round after timer expiry");
-                            }
+                            try { await this.startRound(io, sessionId, result.roundState.currentRound); }
+                            catch (err) { logger.error({ err, sessionId }, "Error starting next round after timer expiry"); }
                         }, 3500);
                     }
                 }
@@ -575,13 +468,7 @@ export class RoundService {
         }
     }
 
-    async handleSubmission(
-        io: SocketServer,
-        sessionId: string,
-        userId: string,
-        answer: string,
-        roundNumber: number
-    ): Promise<void> {
+    async handleSubmission(io: SocketServer, sessionId: string, userId: string, answer: string, roundNumber: number): Promise<void> {
         const state = this.getState(sessionId);
 
         if (state.submittedUserIds.has(userId)) {
@@ -603,7 +490,6 @@ export class RoundService {
 
         if (allSubmitted) {
             this.clearRoundTimer(sessionId);
-
             if (result.roundState.isTerminated) {
                 io.to(sessionId).emit("SESSION_END", {
                     cause: result.roundState.terminationCause ?? "COMPLETED",
@@ -612,13 +498,9 @@ export class RoundService {
                 this.cleanup(sessionId);
                 logger.info({ sessionId }, "Session ended");
             } else {
-                const nextRound = result.roundState.currentRound;
                 setTimeout(async () => {
-                    try {
-                        await this.startRound(io, sessionId, nextRound);
-                    } catch (err) {
-                        logger.error({ err, sessionId }, "Error starting next round after delay");
-                    }
+                    try { await this.startRound(io, sessionId, result.roundState.currentRound); }
+                    catch (err) { logger.error({ err, sessionId }, "Error starting next round"); }
                 }, 3500);
             }
         }
@@ -630,17 +512,13 @@ export class RoundService {
     }
 
     private resolveCategory(state: RoundState, config: BlitzSessionConfig): BlitzCategory {
-        if (config.sessionType === "TIMER") {
-            return config.category!;
-        }
+        if (config.sessionType === "TIMER") return config.category!;
         const pool = [...LIVE_CATEGORY_POOL] as LiveCategory[];
         return pool[Math.floor(Math.random() * pool.length)];
     }
 
     private resolveTimeLimit(sessionType: BlitzSessionConfig["sessionType"], round: number): number | null {
-        if (sessionType === "TIMER") {
-            return Math.max(20_000, 60_000 - (round - 1) * 5_000);
-        }
+        if (sessionType === "TIMER") return Math.max(20_000, 60_000 - (round - 1) * 5_000);
         return null;
     }
 }
