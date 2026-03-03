@@ -61,7 +61,7 @@ export interface RoundChallenge {
     timeLimitMs: number | null;
     category: string;
     language?: string;
-    mcqOptions?: Record<string, string> | null;   // A/B/C/D options for BOTTLENECK
+    mcqOptions?: Record<string, string> | null;
 }
 
 export interface EvaluateAnswerResult {
@@ -87,15 +87,17 @@ export interface PrepareNextRoundPayload {
     players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
 }
 
-const roundStates  = new Map<string, RoundState>();
-const roundTimers  = new Map<string, ReturnType<typeof setInterval>>();
+const roundStates       = new Map<string, RoundState>();
+const roundTimers       = new Map<string, ReturnType<typeof setInterval>>();
+// ✅ NEW: tracks the LIVE mode advance timeout per session
+const liveAdvanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // ── Answer normalization ──────────────────────────────────────────────────────
 
 const DIRECT_MATCH_CATEGORIES = new Set([
     "THE_MISSING_LINK",
     "SYNTAX_ERROR_DETECTION",
-    "THE_BOTTLENECK_BREAKER",   // MCQ answer is just "A"/"B"/"C"/"D"
+    "THE_BOTTLENECK_BREAKER",
 ]);
 
 function normalizeAnswer(s: string): string {
@@ -108,7 +110,7 @@ function evaluateDirectMatch(answer: string, solutionAnswers: string[]): "CORREC
         ? "CORRECT" : "INCORRECT";
 }
 
-// ── Code wrapping helpers (used only for future non-MCQ BOTTLENECK) ───────────
+// ── Code wrapping helpers ─────────────────────────────────────────────────────
 
 function extractPythonFunctionName(template: string): string {
     const match = template.match(/def\s+(\w+)\s*\(/);
@@ -244,21 +246,15 @@ export class RoundService {
     recordResult(sessionId: string, config: BlitzSessionConfig, passed: boolean): RoundState {
         const state = this.getState(sessionId);
 
-        // ✅ Life deduction is handled via Redis in evaluateAnswer() — do NOT touch state.livesRemaining here.
-        // Lives-based termination is also checked there after the Redis deduction.
-
         if (state.currentRound >= config.totalRounds) {
-            // ✅ Last round completed — mark terminated, do NOT increment
             state.isTerminated = true;
             state.terminationCause = "COMPLETED";
             return state;
         }
 
-        // Only increment if there are more rounds to play
         state.currentRound++;
         return state;
     }
-
 
     async evaluateAnswer(args: {
         sessionId: string;
@@ -273,45 +269,37 @@ export class RoundService {
         if (!session) throw new Error(`Session not found: ${sessionId}`);
         const config = session.config;
 
-        let verdict        = "INCORRECT";
+        let verdict         = "INCORRECT";
         let executionTimeMs = 0;
 
         const isAutoSubmit = !answer || answer.trim().length === 0;
 
         if (!isAutoSubmit) {
             try {
-                // Always fetch full challenge (with solution) from QE for evaluation
                 const challengeRes = await fetch(`${QUESTION_ENGINE_URL}/api/v1/challenges/${challengeId}`);
                 if (!challengeRes.ok) throw new Error(`QE returned ${challengeRes.status}`);
 
                 const challengeBody = await challengeRes.json() as { success: boolean; data: ChallengeApiResponse };
                 const challenge = challengeBody.data;
 
-                // ── STATE_TRACING: compare against testCase expectedOutput ────────
                 if (challenge.category === "STATE_TRACING") {
                     const expected = challenge.testCases?.[0]?.expectedOutput ?? "";
                     verdict = normalizeAnswer(answer) === normalizeAnswer(expected)
                         ? "CORRECT" : "INCORRECT";
                     logger.info({ sessionId, challengeId, verdict }, "STATE_TRACING evaluated");
 
-                // ── BOTTLENECK (MCQ): compare answer letter A/B/C/D ──────────────
                 } else if (challenge.category === "THE_BOTTLENECK_BREAKER") {
                     const sol = challenge.solution as any;
                     if (sol?.type === "MCQ") {
-                        const correct = (sol.correct as string ?? "").trim().toUpperCase();
-                        const submitted = answer.trim().toUpperCase();
+                        const correct    = (sol.correct as string ?? "").trim().toUpperCase();
+                        const submitted  = answer.trim().toUpperCase();
                         verdict = submitted === correct ? "CORRECT" : "INCORRECT";
-                        logger.info(
-                            { sessionId, challengeId, submitted, correct, verdict },
-                            "BOTTLENECK MCQ evaluated"
-                        );
+                        logger.info({ sessionId, challengeId, submitted, correct, verdict }, "BOTTLENECK MCQ evaluated");
                     } else {
-                        // Fallback: direct answer match if not MCQ type
                         const solutionAnswers = sol?.answers ?? [];
                         verdict = evaluateDirectMatch(answer, solutionAnswers);
                     }
 
-                // ── MISSING_LINK / SYNTAX_ERROR: direct string match ─────────────
                 } else if (DIRECT_MATCH_CATEGORIES.has(challenge.category)) {
                     const solutionAnswers = (challenge.solution as any)?.answers ?? [];
                     verdict = solutionAnswers.length > 0
@@ -334,7 +322,6 @@ export class RoundService {
         await this.sessionService.recordRoundScore(sessionId, userId, points);
         if (!passed && config.livesEnabled) {
             await this.sessionService.deductLife(sessionId, userId);
-            // ✅ Check lives-based termination from Redis-sourced data (single source of truth)
             const afterDeduct = await this.sessionService.getSession(sessionId);
             if (afterDeduct) {
                 const afterSerialized = await this.sessionService.serialize(afterDeduct);
@@ -459,8 +446,9 @@ export class RoundService {
                             try {
                                 const liveState = this.getState(sessionId);
                                 await this.startRound(io, sessionId, liveState.currentRound);
+                            } catch (err) {
+                                logger.error({ err, sessionId }, "Error starting next round after timer expiry");
                             }
-                            catch (err) { logger.error({ err, sessionId }, "Error starting next round after timer expiry"); }
                         }, 3500);
                     }
                 }
@@ -479,7 +467,89 @@ export class RoundService {
         }
     }
 
-    async handleSubmission(io: SocketServer, sessionId: string, userId: string, answer: string, roundNumber: number): Promise<void> {
+    // ✅ NEW: LIVE mode advance timer — fires if second player never submits
+    // Zero effect on TIMER mode (the else-if guard in handleSubmission blocks it)
+    private scheduleLiveAdvance(
+        io: SocketServer,
+        sessionId: string,
+        roundNumber: number,
+        delayMs = 15_000
+    ): void {
+        const existing = liveAdvanceTimers.get(sessionId);
+        if (existing) {
+            clearTimeout(existing);
+            liveAdvanceTimers.delete(sessionId);
+        }
+
+        const handle = setTimeout(async () => {
+            liveAdvanceTimers.delete(sessionId);
+
+            const state = roundStates.get(sessionId);
+            if (!state) return;
+
+            const session = await this.sessionService.getSession(sessionId);
+            if (!session) return;
+
+            const pending = session.players.filter(
+                (uid) => !state.submittedUserIds.has(uid)
+            );
+            if (pending.length === 0) return;
+
+            logger.info(
+                { sessionId, roundNumber, pending },
+                "LIVE advance timer fired — auto-submitting pending players"
+            );
+
+            const challengeId =
+                state.usedChallengeIds[roundNumber - 1] ??
+                state.usedChallengeIds[state.usedChallengeIds.length - 1];
+
+            for (const userId of pending) {
+                try {
+                    state.submittedUserIds.add(userId);
+                    const result = await this.evaluateAnswer({
+                        sessionId,
+                        userId,
+                        challengeId,
+                        answer: "",
+                    });
+                    io.to(sessionId).emit("ROUND_RESULT", result);
+
+                    const isLast = userId === pending[pending.length - 1];
+                    if (isLast) {
+                        if (result.roundState.isTerminated) {
+                            io.to(sessionId).emit("SESSION_END", {
+                                cause: result.roundState.terminationCause ?? "COMPLETED",
+                                finalState: { players: result.players },
+                            });
+                            this.cleanup(sessionId);
+                        } else {
+                            setTimeout(async () => {
+                                try {
+                                    const liveState = this.getState(sessionId);
+                                    await this.startRound(io, sessionId, liveState.currentRound);
+                                } catch (err) {
+                                    logger.error({ err, sessionId }, "Error starting next round after live advance");
+                                }
+                            }, 3500);
+                        }
+                    }
+                } catch (err) {
+                    logger.error({ err, sessionId, userId }, "Error auto-submitting in live advance");
+                }
+            }
+        }, delayMs);
+
+        liveAdvanceTimers.set(sessionId, handle);
+    }
+
+    async handleSubmission(
+        io: SocketServer,
+        sessionId: string,
+        userId: string,
+        answer: string,
+        roundNumber: number
+    ): Promise<void> {
         const state = this.getState(sessionId);
 
         if (state.submittedUserIds.has(userId)) {
@@ -495,12 +565,20 @@ export class RoundService {
         const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
         io.to(sessionId).emit("ROUND_RESULT", result);
 
-        const session = await this.sessionService.getSession(sessionId);
+        const session     = await this.sessionService.getSession(sessionId);
         const totalPlayers = session?.players.length ?? 1;
         const allSubmitted = state.submittedUserIds.size >= totalPlayers;
 
         if (allSubmitted) {
+            // ✅ Cancel live advance timer — everyone submitted normally
+            const existing = liveAdvanceTimers.get(sessionId);
+            if (existing) {
+                clearTimeout(existing);
+                liveAdvanceTimers.delete(sessionId);
+            }
+
             this.clearRoundTimer(sessionId);
+
             if (result.roundState.isTerminated) {
                 io.to(sessionId).emit("SESSION_END", {
                     cause: result.roundState.terminationCause ?? "COMPLETED",
@@ -513,15 +591,29 @@ export class RoundService {
                     try {
                         const liveState = this.getState(sessionId);
                         await this.startRound(io, sessionId, liveState.currentRound);
+                    } catch (err) {
+                        logger.error({ err, sessionId }, "Error starting next round");
                     }
-                    catch (err) { logger.error({ err, sessionId }, "Error starting next round"); }
                 }, 3500);
             }
+        } else if (totalPlayers > 1 && !roundTimers.has(sessionId)) {
+            // ✅ LIVE mode only: first player submitted, arm the advance timer
+            // Guard: totalPlayers > 1 (not single player) AND no TIMER mode timer running
+            this.scheduleLiveAdvance(io, sessionId, roundNumber);
+            logger.info({ sessionId, roundNumber }, "LIVE advance timer scheduled (15s)");
         }
     }
 
     cleanup(sessionId: string): void {
         this.clearRoundTimer(sessionId);
+
+        // ✅ Also clear live advance timer on cleanup
+        const liveHandle = liveAdvanceTimers.get(sessionId);
+        if (liveHandle) {
+            clearTimeout(liveHandle);
+            liveAdvanceTimers.delete(sessionId);
+        }
+
         roundStates.delete(sessionId);
     }
 
