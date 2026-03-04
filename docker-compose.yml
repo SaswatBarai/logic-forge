@@ -137,6 +137,40 @@ services:
       retries: 5
       start_period: 15s
 
+  # 7. Web Frontend (Next.js)
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_GAME_API_URL: http://localhost:3001
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+    container_name: logicforge-web
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/logicforge?schema=public
+      MONGO_URL: mongodb://admin:password@mongo:27017/logicforge_auth?authSource=admin
+      REDIS_URL: redis://redis:6379
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-secret-change-me}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GITHUB_ID: ${GITHUB_ID}
+      GITHUB_SECRET: ${GITHUB_SECRET}
+      GAME_API_URL: http://game-api:3001
+      QUESTION_ENGINE_URL: http://question-engine:3002
+      INTER_SERVICE_SECRET: ${INTER_SERVICE_SECRET:-dev-inter-service-secret}
+      NODE_ENV: development
+    depends_on:
+      game-api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - logicforge-net
+
+
 volumes:
   postgres_data:
   mongo_data:

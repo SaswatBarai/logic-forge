@@ -42,8 +42,8 @@ export const AntiCheatSection = () => {
                 Secured by ForgeGuard
               </span>
             </div>
-            <h2 className="text-4xl md:text-5xl font-black tracking-tighter uppercase">
-              Built‑in <span className="text-amber-400">AI‑Immunity</span>
+            <h2 className="text-4xl md:text-5xl font-black tracking-tighter uppercase text-slate-50">
+              Built-in <span className="text-amber-400">AI-Immunity</span>
             </h2>
             <p className="max-w-2xl text-sm text-slate-400 leading-relaxed">
               LogicForge assumes every candidate has access to GPT‑5. So the anti‑cheat

@@ -5,7 +5,7 @@ import { motion }              from "framer-motion";
 import { useGameEngine }       from "@/hooks/use-game-engine";
 import { Loader2, Swords, CheckCircle2, User, Users } from "lucide-react";
 
-export function MatchLobby() {
+export default function MatchLobby() {
     const { sessionStatus, sessionId, config, readyUp } = useGameEngine();
     const [isReady,    setIsReady]    = useState(false);
     const [countdown,  setCountdown]  = useState(2);

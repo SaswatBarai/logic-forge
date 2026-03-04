@@ -4,7 +4,12 @@
     "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@logicforge/db": ["../../packages/db/src/index.ts"],
+      "@logicforge/auth": ["../../packages/auth/src/index.ts"],
+      "@logicforge/config": ["../../packages/config/src/index.ts"],
+      "@logicforge/logger": ["../../packages/logger/src/index.ts"],
+      "@logicforge/types": ["../../packages/types/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
