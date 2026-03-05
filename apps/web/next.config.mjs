@@ -2,8 +2,6 @@
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
-
-  // ✅ Tell Next.js to transpile all internal workspace packages
   transpilePackages: [
     "@logicforge/db",
     "@logicforge/auth",
@@ -12,10 +10,9 @@ const nextConfig = {
     "@logicforge/types",
     "@logicforge/ui",
   ],
-
-  // ✅ Only externalize native/binary packages
-  serverExternalPackages: ["mongoose", "mongodb", "@prisma/client"],
-
+  experimental: {
+    serverComponentsExternalPackages: ["mongoose", "mongodb", "@prisma/client"],
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals || [];
@@ -23,7 +20,6 @@ const nextConfig = {
     }
     return config;
   },
-
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "lh3.googleusercontent.com" },

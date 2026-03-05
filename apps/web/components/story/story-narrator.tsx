@@ -7,7 +7,6 @@ import { useStoryStore } from "@/store/story-store";
 import type { Scar, Debt } from "@/store/story-store";
 import { storyData, StoryAct, StoryChoice } from "@/lib/story-data";
 
-// ── Parse choices from AI text (kept for UI compatibility) ─────────────
 function parseChoices(text: string): string[] | null {
     const pattern = /▶\s*([A-E])\)\s*(.+?)(?=\n▶|\n\n|$)/gs;
     const choices: string[] = [];
@@ -47,15 +46,15 @@ export function StoryNarrator() {
     const scrollRef = useRef<HTMLDivElement>(null);
     const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
     const hasStarted = useRef(false);
-
     const streamIdRef = useRef<number>(0);
 
-    // Auto-scroll slightly more smoothly
+    // ✅ FIXED: removed useState for showChoices
+    // ✅ FIXED: removed showChoices from useEffect deps
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, streamingText, showChoices]);
+    }, [messages, streamingText]);
 
     const simulateStream = useCallback(async (text: string, onComplete?: () => void) => {
         setStreaming(true);
@@ -66,7 +65,7 @@ export function StoryNarrator() {
         for (const chunk of chunks) {
             if (streamIdRef.current !== currentId) break;
             appendStreamingText(chunk);
-            await new Promise(r => setTimeout(r, 6)); // 6ms per 4 chars for fast readability
+            await new Promise(r => setTimeout(r, 6));
         }
 
         if (streamIdRef.current === currentId) {
@@ -75,7 +74,6 @@ export function StoryNarrator() {
         }
     }, [setStreaming, setStreamingText, appendStreamingText, commitAssistantMessage]);
 
-    // ── Start zone ─────────────────────────────────────────────────────────
     useEffect(() => {
         if (zone && !hasStarted.current && messages.length === 0) {
             hasStarted.current = true;
@@ -142,7 +140,9 @@ export function StoryNarrator() {
 
     const latestAssistant = messages.findLast((m) => m.role === "assistant");
     const currentChoices = latestAssistant ? parseChoices(latestAssistant.content) : null;
-    var showChoices = currentChoices && !isStreaming;
+
+    // ✅ FIXED: plain const instead of var + useState
+    const showChoices = currentChoices && !isStreaming;
 
     const renderText = (text: string) => {
         return text.split("\n").map((line, i) => {

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
+import { Toaster }        from "@/components/ui/sonner";
 import { Toaster as ToastToaster } from "@/components/ui/toaster";
-import { Providers } from "@/components/Provider";
+import { Providers }      from "@/components/Provider";
+import { PreLoaderWrapper } from "@/components/PreLoaderWrapper";
 
 export const metadata: Metadata = {
   title: "LogicForge - AI-Proof Technical Evaluation",
@@ -22,11 +23,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-background text-foreground antialiased font-sans">
-        {/* Wrap the entire application in the authentication provider */}
         <Providers>
-          {children}
+          {/*
+            PreLoaderWrapper must wrap children but sit INSIDE Providers
+            so that useSession / auth context is available inside PreLoader
+            (needed by HeroSection which calls useSession)
+          */}
+          <PreLoaderWrapper>
+            {children}
+          </PreLoaderWrapper>
+
+          {/* Toasters stay outside PreLoaderWrapper — always visible */}
           <Toaster />
           <ToastToaster />
         </Providers>
