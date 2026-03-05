@@ -102,7 +102,7 @@ export const HeroSection = () => {
 
   return (
     <section className="flex flex-col relative w-full overflow-hidden border-b-2 border-foreground bg-background">
-      
+
       {/* ── Top Status Strip ── */}
       <div className="w-full bg-card border-b border-foreground/30 px-6 py-2 hidden md:flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-muted-foreground z-10 relative shadow-sm">
         <div className="flex items-center gap-6 max-w-7xl mx-auto w-full">
@@ -121,7 +121,7 @@ export const HeroSection = () => {
 
         {/* ── Left: Copy & CTA ── */}
         <div className="flex flex-col gap-8">
-          
+
           <motion.div
             className="flex items-center gap-3 w-fit border-2 border-foreground bg-card px-4 py-2 shadow-retro-sm"
             initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}
@@ -163,6 +163,15 @@ export const HeroSection = () => {
                 <span>▶</span> Enter Arena
               </motion.button>
             </Link>
+            <Link href="/story">
+              <motion.button
+                className="arcade-btn bg-card px-8 py-4 border-2 border-foreground shadow-retro text-sm font-black uppercase tracking-widest hover:text-primary transition-colors flex items-center gap-3"
+                whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
+                whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
+              >
+                <span>📖</span> Story Mode
+              </motion.button>
+            </Link>
             <Link href="#how">
               <motion.button
                 className="arcade-btn bg-card px-8 py-4 border-2 border-foreground shadow-retro text-sm font-black uppercase tracking-widest hover:text-primary transition-colors"
@@ -185,7 +194,7 @@ export const HeroSection = () => {
 
           {/* Console Container */}
           <div className="border-2 border-foreground shadow-retro-lg overflow-hidden relative z-10 flex flex-col" style={{ backgroundColor: "hsl(var(--editor-bg))", minHeight: "420px" }}>
-            
+
             {/* Window bar */}
             <div className="flex items-center justify-between px-4 py-2 border-b-2 border-foreground shrink-0" style={{ backgroundColor: "hsl(var(--editor-header))" }}>
               <div className="flex gap-2">
@@ -251,7 +260,7 @@ export const HeroSection = () => {
                 </motion.div>
               </AnimatePresence>
             </div>
-            
+
           </div>
 
           {/* Floating Badges */}

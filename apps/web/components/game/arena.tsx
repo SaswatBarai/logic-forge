@@ -4,16 +4,16 @@ import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { useGameStore }  from "@/store/game-store";
-import { CodeEditor }         from "./code-editor";
-import { McqSelector }        from "./mcq-selector";
-import { PromptCanvas }       from "./prompt-canvas";
-import { TimerBar }           from "./timer-bar";
+import { useGameStore } from "@/store/game-store";
+import { CodeEditor } from "./code-editor";
+import { McqSelector } from "./mcq-selector";
+import { PromptCanvas } from "./prompt-canvas";
+import { TimerBar } from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap, Eye } from "lucide-react";
 
-const BLANK_CATEGORIES   = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
-const MCQ_CATEGORIES     = new Set(["THE_BOTTLENECK_BREAKER"]);
+const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
+const MCQ_CATEGORIES = new Set(["THE_BOTTLENECK_BREAKER"]);
 const TRACING_CATEGORIES = new Set(["STATE_TRACING"]);
 
 function extractBlankAnswer(template: string, filledCode: string): string {
@@ -21,7 +21,7 @@ function extractBlankAnswer(template: string, filledCode: string): string {
     const blankIdx = template.indexOf(BLANK);
     if (blankIdx === -1) return filledCode;
     const before = template.substring(0, blankIdx);
-    const after  = template.substring(blankIdx + BLANK.length);
+    const after = template.substring(blankIdx + BLANK.length);
     const startIdx = filledCode.indexOf(before);
     if (startIdx === -1) return filledCode;
     const valueStart = startIdx + before.length;
@@ -32,10 +32,10 @@ function extractBlankAnswer(template: string, filledCode: string): string {
 
 function resolveEditorLanguage(lang?: string): string {
     switch (lang?.toUpperCase()) {
-        case "CPP":    return "cpp";
-        case "JAVA":   return "java";
+        case "CPP": return "cpp";
+        case "JAVA": return "java";
         case "PYTHON": return "python";
-        default:       return "python";
+        default: return "python";
     }
 }
 
@@ -47,10 +47,10 @@ export function GameArena() {
         sessionId, currentRound, totalRounds, players,
     } = useGameEngine();
 
-    const [code, setCode]                   = useState(challenge?.codeTemplate || "");
-    const [mcqSelected, setMcqSelected]     = useState<string | null>(null);
+    const [code, setCode] = useState(challenge?.codeTemplate || "");
+    const [mcqSelected, setMcqSelected] = useState<string | null>(null);
     const [tracingAnswer, setTracingAnswer] = useState("");
-    const [isSubmitting, setIsSubmitting]   = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         setCode(challenge?.codeTemplate || "");
@@ -60,21 +60,21 @@ export function GameArena() {
     }, [challenge?.id]);
 
     const roundHistory = useGameStore((s) => s.roundHistory);
-    const config       = useGameStore((s) => s.config);
+    const config = useGameStore((s) => s.config);
 
-    const isSingle           = config?.playerFormat === "SINGLE";
-    const isBlankChallenge   = BLANK_CATEGORIES.has(challenge?.category ?? "");
-    const isMcqChallenge     = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
+    const isSingle = config?.playerFormat === "SINGLE";
+    const isBlankChallenge = BLANK_CATEGORIES.has(challenge?.category ?? "");
+    const isMcqChallenge = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
     const isTracingChallenge = TRACING_CATEGORIES.has(challenge?.category ?? "");
-    const editorLanguage     = resolveEditorLanguage(challenge?.language);
+    const editorLanguage = resolveEditorLanguage(challenge?.language);
 
     if (!challenge) return null;
 
-    const myUserId  = session?.user?.email ?? session?.user?.id ?? "";
-    const myPlayer  = players.find((p) => p.userId === myUserId);
+    const myUserId = session?.user?.email ?? session?.user?.id ?? "";
+    const myPlayer = players.find((p) => p.userId === myUserId);
     const oppPlayer = players.find((p) => p.userId !== myUserId);
-    const myScore   = myPlayer?.score  ?? 0;
-    const oppScore  = oppPlayer?.score ?? 0;
+    const myScore = myPlayer?.score ?? 0;
+    const oppScore = oppPlayer?.score ?? 0;
 
     const canSubmit = isMcqChallenge
         ? !!mcqSelected
@@ -101,13 +101,13 @@ export function GameArena() {
         setTimeout(() => setIsSubmitting(false), 3000);
     };
 
-    const lastEntry     = roundHistory[roundHistory.length - 1];
+    const lastEntry = roundHistory[roundHistory.length - 1];
     const outputContent = lastEntry
         ? [
             `Verdict: ${lastEntry.verdict}`,
             `Score: +${lastEntry.score} pts`,
             lastEntry.executionTimeMs > 0 ? `Execution time: ${lastEntry.executionTimeMs}ms` : null,
-          ].filter(Boolean).join("\n")
+        ].filter(Boolean).join("\n")
         : null;
 
     // ── CHANGE 1: TRACING no longer passes code to canvas ──
@@ -177,6 +177,7 @@ export function GameArena() {
                                 </span>
                             </div>
                             <PromptCanvas
+                                key={`canvas-${challenge.id}`}
                                 title={challenge.title}
                                 description={challenge.description}
                                 codeTemplate={canvasCodeTemplate}
@@ -221,6 +222,7 @@ export function GameArena() {
                                     <div className="flex-1 min-h-0">
                                         {isMcqChallenge ? (
                                             <McqSelector
+                                                key={`mcq-${challenge.id}`}
                                                 options={challenge.mcqOptions!}
                                                 language={editorLanguage}
                                                 selected={mcqSelected}
@@ -268,6 +270,7 @@ export function GameArena() {
                                             </div>
                                         ) : (
                                             <CodeEditor
+                                                key={`editor-${challenge.id}`}
                                                 language={editorLanguage}
                                                 code={code}
                                                 onChange={(val) => setCode(val || "")}

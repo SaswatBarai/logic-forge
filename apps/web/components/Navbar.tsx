@@ -48,8 +48,9 @@ export const Navbar = () => {
         <nav className="hidden md:flex items-center gap-10">
           {[
             { label: "How It Works", href: "/#how" },
-            { label: "Challenges",   href: "/#categories" },
-            { label: "Pricing",      href: "/#" },
+            { label: "Challenges", href: "/#categories" },
+            { label: "Story Mode", href: "/story" },
+            { label: "Pricing", href: "/#" },
           ].map((item, i) => (
             <motion.div
               key={item.label}

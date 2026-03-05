@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion }              from "framer-motion";
-import { useGameEngine }       from "@/hooks/use-game-engine";
+import { motion } from "framer-motion";
+import { useGameEngine } from "@/hooks/use-game-engine";
 import { Loader2, Swords, CheckCircle2, User, Users } from "lucide-react";
 
 export default function MatchLobby() {
     const { sessionStatus, sessionId, config, readyUp } = useGameEngine();
-    const [isReady,    setIsReady]    = useState(false);
-    const [countdown,  setCountdown]  = useState(2);
+    const [isReady, setIsReady] = useState(false);
+    const [countdown, setCountdown] = useState(2);
 
     const isSingle = config?.playerFormat === "SINGLE";
 
@@ -31,7 +31,7 @@ export default function MatchLobby() {
             clearInterval(ticker);
             clearTimeout(t);
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionId, isSingle]);
 
     if (sessionStatus === "ACTIVE") return null;
@@ -62,7 +62,7 @@ export default function MatchLobby() {
                 {/* Mode badge */}
                 <div className="flex items-center gap-2 px-4 py-2 border-2 border-foreground bg-card shadow-retro-sm">
                     {isSingle
-                        ? <User  className="size-4 text-primary" />
+                        ? <User className="size-4 text-primary" />
                         : <Users className="size-4 text-primary" />}
                     <span className="text-xs font-black uppercase tracking-widest">
                         {isSingle ? "Solo Run" : "Dual Engine"}
@@ -131,13 +131,12 @@ export default function MatchLobby() {
                 {/* ── DUAL: ready up button ── */}
                 {!isSingle && sessionId && (
                     <motion.button
-                        className={`arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 ${
-                            isReady
+                        className={`arcade-btn px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest flex items-center gap-3 ${isReady
                                 ? "bg-accent text-accent-foreground cursor-default"
                                 : "bg-primary cursor-pointer"
-                        }`}
+                            }`}
                         whileHover={!isReady ? { scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" } : {}}
-                        whileTap={!isReady   ? { scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" } : {}}
+                        whileTap={!isReady ? { scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" } : {}}
                         onClick={handleReadyClick}
                         disabled={isReady}
                         initial={{ opacity: 0, y: 20 }}

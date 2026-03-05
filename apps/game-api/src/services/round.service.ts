@@ -10,12 +10,12 @@ import {
 import type { SessionService } from "./session.service";
 
 const QUESTION_ENGINE_URL = process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
-const CODE_RUNNER_URL     = process.env.CODE_RUNNER_URL     || "http://localhost:3004";
+const CODE_RUNNER_URL = process.env.CODE_RUNNER_URL || "http://localhost:3004";
 
 const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
     "MISSING_LINK": "THE_MISSING_LINK",
-    "BOTTLENECK":   "THE_BOTTLENECK_BREAKER",
-    "TRACING":      "STATE_TRACING",
+    "BOTTLENECK": "THE_BOTTLENECK_BREAKER",
+    "TRACING": "STATE_TRACING",
     "SYNTAX_ERROR": "SYNTAX_ERROR_DETECTION",
 };
 
@@ -87,8 +87,8 @@ export interface PrepareNextRoundPayload {
     players: Array<{ userId: string; score: number; roundScores: number[]; livesRemaining: number }>;
 }
 
-const roundStates       = new Map<string, RoundState>();
-const roundTimers       = new Map<string, ReturnType<typeof setInterval>>();
+const roundStates = new Map<string, RoundState>();
+const roundTimers = new Map<string, ReturnType<typeof setInterval>>();
 // ✅ NEW: tracks the LIVE mode advance timeout per session
 const liveAdvanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -155,8 +155,8 @@ int main() { cout << "OK" << endl; return 0; }`.trim();
 function buildExecutableCode(language: string, template: string, answer: string): string {
     const lang = language.toUpperCase();
     if (lang === "PYTHON") return buildPythonExecutable(template, answer);
-    if (lang === "JAVA")   return buildJavaExecutable(template, answer);
-    if (lang === "CPP")    return buildCppExecutable(template, answer);
+    if (lang === "JAVA") return buildJavaExecutable(template, answer);
+    if (lang === "CPP") return buildCppExecutable(template, answer);
     return template.replace("________", answer.trim());
 }
 
@@ -192,8 +192,8 @@ export class RoundService {
         const category = this.resolveCategory(state, config);
 
         const qeCategory = CATEGORY_TO_QE[category];
-        const isTracing  = qeCategory === "STATE_TRACING";
-        const language   = pickLanguage();
+        const isTracing = qeCategory === "STATE_TRACING";
+        const language = pickLanguage();
 
         const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
         url.searchParams.set("category", qeCategory);
@@ -212,6 +212,13 @@ export class RoundService {
             fallbackUrl.searchParams.set("category", qeCategory);
             if (!isTracing) fallbackUrl.searchParams.set("language", language);
             res = await fetch(fallbackUrl.toString());
+        }
+
+        if (!res.ok && res.status === 404 && !isTracing) {
+            logger.warn({ sessionId, category, language }, "No challenges for language — retrying without language constraint");
+            const noLangUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
+            noLangUrl.searchParams.set("category", qeCategory);
+            res = await fetch(noLangUrl.toString());
         }
 
         if (!res.ok) {
@@ -269,7 +276,7 @@ export class RoundService {
         if (!session) throw new Error(`Session not found: ${sessionId}`);
         const config = session.config;
 
-        let verdict         = "INCORRECT";
+        let verdict = "INCORRECT";
         let executionTimeMs = 0;
 
         const isAutoSubmit = !answer || answer.trim().length === 0;
@@ -291,8 +298,8 @@ export class RoundService {
                 } else if (challenge.category === "THE_BOTTLENECK_BREAKER") {
                     const sol = challenge.solution as any;
                     if (sol?.type === "MCQ") {
-                        const correct    = (sol.correct as string ?? "").trim().toUpperCase();
-                        const submitted  = answer.trim().toUpperCase();
+                        const correct = (sol.correct as string ?? "").trim().toUpperCase();
+                        const submitted = answer.trim().toUpperCase();
                         verdict = submitted === correct ? "CORRECT" : "INCORRECT";
                         logger.info({ sessionId, challengeId, submitted, correct, verdict }, "BOTTLENECK MCQ evaluated");
                     } else {
@@ -366,7 +373,7 @@ export class RoundService {
 
         state.submittedUserIds = new Set<string>();
 
-        const challenge  = await this.fetchChallenge(sessionId, config);
+        const challenge = await this.fetchChallenge(sessionId, config);
         const serialized = await this.sessionService.serialize(session);
 
         return {
@@ -565,7 +572,7 @@ export class RoundService {
         const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
         io.to(sessionId).emit("ROUND_RESULT", result);
 
-        const session     = await this.sessionService.getSession(sessionId);
+        const session = await this.sessionService.getSession(sessionId);
         const totalPlayers = session?.players.length ?? 1;
         const allSubmitted = state.submittedUserIds.size >= totalPlayers;
 
