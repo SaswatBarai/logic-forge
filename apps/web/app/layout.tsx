@@ -4,6 +4,7 @@ import { Toaster }        from "@/components/ui/sonner";
 import { Toaster as ToastToaster } from "@/components/ui/toaster";
 import { Providers }      from "@/components/Provider";
 import { PreLoaderWrapper } from "@/components/PreLoaderWrapper";
+import { GlobalClickSound } from "@/components/GlobalClickSound";
 
 export const metadata: Metadata = {
   title: "LogicForge - AI-Proof Technical Evaluation",
@@ -31,6 +32,7 @@ export default function RootLayout({
             so that useSession / auth context is available inside PreLoader
             (needed by HeroSection which calls useSession)
           */}
+           <GlobalClickSound />
           <PreLoaderWrapper>
             {children}
           </PreLoaderWrapper>

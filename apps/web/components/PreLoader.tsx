@@ -749,8 +749,15 @@ export function PreLoader({ onComplete }: { onComplete: () => void }) {
   const [readyState, setReadyState]   = useState(false);
   const [flashing, setFlashing]       = useState(false);
   const [exiting, setExiting]         = useState(false);
-  const [muted, setMutedState]        = useState(false);
-  const mutedRef = useRef(false);
+  const [muted, setMutedState] = useState(() => {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem("lf_sfx_enabled") === "false";
+  });
+  const mutedRef = useRef(
+  typeof window !== "undefined"
+    ? localStorage.getItem("lf_sfx_enabled") === "false"
+    : false
+  );
 
   const audio = useAudioEngine();
 
@@ -983,3 +990,4 @@ export function PreLoader({ onComplete }: { onComplete: () => void }) {
     </>
   );
 }
+
