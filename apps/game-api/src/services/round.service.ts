@@ -195,6 +195,11 @@ export class RoundService {
         const isTracing = qeCategory === "STATE_TRACING";
         const language = pickLanguage();
 
+        logger.info(
+            { sessionId, round: state.currentRound, usedChallengeCount: state.usedChallengeIds.length, usedIds: state.usedChallengeIds },
+            "fetchChallenge: starting fetch"
+        );
+
         const url = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
         url.searchParams.set("category", qeCategory);
         if (!isTracing) url.searchParams.set("language", language);
@@ -203,6 +208,11 @@ export class RoundService {
                 url.searchParams.append("excludeIds", id);
             }
         }
+
+        logger.info(
+            { sessionId, round: state.currentRound, url: url.toString() },
+            "fetchChallenge: request URL"
+        );
 
         let res = await fetch(url.toString());
 
@@ -233,7 +243,7 @@ export class RoundService {
         state.usedChallengeIds.push(data.id);
 
         logger.info(
-            { sessionId, round: state.currentRound, category, language, challengeId: data.id },
+            { sessionId, round: state.currentRound, category, language, challengeId: data.id, totalUsedCount: state.usedChallengeIds.length },
             "Challenge fetched"
         );
 
@@ -253,13 +263,26 @@ export class RoundService {
     recordResult(sessionId: string, config: BlitzSessionConfig, passed: boolean): RoundState {
         const state = this.getState(sessionId);
 
+        logger.info(
+            { sessionId, currentRound: state.currentRound, totalRounds: config.totalRounds },
+            "recordResult: checking if session should terminate"
+        );
+
         if (state.currentRound >= config.totalRounds) {
             state.isTerminated = true;
             state.terminationCause = "COMPLETED";
+            logger.info(
+                { sessionId, currentRound: state.currentRound, totalRounds: config.totalRounds },
+                "recordResult: session terminated (all rounds completed)"
+            );
             return state;
         }
 
         state.currentRound++;
+        logger.info(
+            { sessionId, newRound: state.currentRound, totalRounds: config.totalRounds },
+            "recordResult: advancing to next round"
+        );
         return state;
     }
 
@@ -376,6 +399,11 @@ export class RoundService {
         const challenge = await this.fetchChallenge(sessionId, config);
         const serialized = await this.sessionService.serialize(session);
 
+        logger.info(
+            { sessionId, roundNumber: state.currentRound, totalRounds: config.totalRounds, challengeId: challenge.id },
+            "prepareNextRound: about to emit ROUND_START"
+        );
+
         return {
             roundNumber: state.currentRound,
             totalRounds: config.totalRounds,
@@ -387,6 +415,12 @@ export class RoundService {
     async startRound(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
         this.clearRoundTimer(sessionId);
         const payload = await this.prepareNextRound(sessionId);
+        
+        logger.info(
+            { sessionId, roundNumber, payloadRoundNumber: payload.roundNumber, challengeId: payload.challenge.id },
+            "startRound: about to emit ROUND_START"
+        );
+        
         io.to(sessionId).emit("ROUND_START", payload);
         await this.sessionService.updateSession(sessionId, { currentRound: roundNumber, status: "ACTIVE" });
         logger.info({ sessionId, roundNumber }, "ROUND_START emitted");
@@ -569,12 +603,22 @@ export class RoundService {
             state.usedChallengeIds[roundNumber - 1] ??
             state.usedChallengeIds[state.usedChallengeIds.length - 1];
 
+        logger.info(
+            { sessionId, userId, roundNumber, challengeId, submittedCount: state.submittedUserIds.size },
+            "handleSubmission: evaluating answer"
+        );
+
         const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
         io.to(sessionId).emit("ROUND_RESULT", result);
 
         const session = await this.sessionService.getSession(sessionId);
         const totalPlayers = session?.players.length ?? 1;
         const allSubmitted = state.submittedUserIds.size >= totalPlayers;
+
+        logger.info(
+            { sessionId, userId, roundNumber, allSubmitted, submittedCount: state.submittedUserIds.size, totalPlayers },
+            "handleSubmission: checking if all submitted"
+        );
 
         if (allSubmitted) {
             // ✅ Cancel live advance timer — everyone submitted normally
@@ -586,6 +630,11 @@ export class RoundService {
 
             this.clearRoundTimer(sessionId);
 
+            logger.info(
+                { sessionId, roundNumber, isTerminated: result.roundState.isTerminated },
+                "handleSubmission: all submitted, checking termination"
+            );
+
             if (result.roundState.isTerminated) {
                 io.to(sessionId).emit("SESSION_END", {
                     cause: result.roundState.terminationCause ?? "COMPLETED",
@@ -594,9 +643,17 @@ export class RoundService {
                 this.cleanup(sessionId);
                 logger.info({ sessionId }, "Session ended");
             } else {
+                logger.info(
+                    { sessionId, roundNumber, nextRound: result.roundState.currentRound },
+                    "handleSubmission: scheduling next round"
+                );
                 setTimeout(async () => {
                     try {
                         const liveState = this.getState(sessionId);
+                        logger.info(
+                            { sessionId, nextRound: liveState.currentRound },
+                            "handleSubmission: calling startRound for next round"
+                        );
                         await this.startRound(io, sessionId, liveState.currentRound);
                     } catch (err) {
                         logger.error({ err, sessionId }, "Error starting next round");

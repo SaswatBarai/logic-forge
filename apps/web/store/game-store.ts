@@ -206,6 +206,14 @@ export const useGameStore = create<GameState>()(
         }),
 
         applyRoundStart: (payload) => set((s) => {
+            console.info("[Store] applyRoundStart", {
+                roundNumber: payload.roundNumber,
+                totalRounds: payload.totalRounds,
+                challengeId: payload.challenge.id,
+                challengeTitle: payload.challenge.title,
+                previousRound: s.currentRound,
+                previousChallenge: s.challenge?.id
+            });
             s.sessionStatus = "ACTIVE";
             s.currentRound = payload.roundNumber;
             s.totalRounds = payload.totalRounds;
@@ -223,10 +231,15 @@ export const useGameStore = create<GameState>()(
             // causing the alreadyRecorded guard to silently drop round 5.
             const roundNum = s.currentRound;
 
+            console.info("[Store] applyRoundResult", { roundNum, userId: payload.userId, verdict: payload.verdict, payloadRoundState: payload.roundState.currentRound });
+
             const alreadyRecorded = s.roundHistory.some(
                 (r) => r.roundNumber === roundNum && r.userId === payload.userId
             );
-            if (alreadyRecorded) return;
+            if (alreadyRecorded) {
+                console.warn("[Store] applyRoundResult: already recorded", { roundNum, userId: payload.userId });
+                return;
+            }
 
             s.players = payload.players;
             s.lastResult = {
@@ -252,6 +265,8 @@ export const useGameStore = create<GameState>()(
                 score:           payload.points,
                 executionTimeMs: payload.executionTimeMs ?? 0,
             });
+
+            console.info("[Store] applyRoundResult: recorded", { roundNum, userId: payload.userId, historyLength: s.roundHistory.length });
 
             if (payload.roundState.isTerminated) {
                 s.sessionStatus = "COMPLETED";

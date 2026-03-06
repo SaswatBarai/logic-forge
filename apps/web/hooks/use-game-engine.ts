@@ -120,10 +120,19 @@ export function useGameEngine() {
             setQueueError(p.message ?? "Failed to join session");
         });
 
-        socket.off("SESSION_JOINED").on("SESSION_JOINED",     (p: SessionJoinedPayload)  => applySessionJoined(p));
+        socket.off("SESSION_JOINED").on("SESSION_JOINED",     (p: SessionJoinedPayload)  => {
+            console.info("[WS] SESSION_JOINED received", p);
+            applySessionJoined(p);
+        });
         socket.off("PLAYER_CONNECTED").on("PLAYER_CONNECTED", (p: { userId: string })    => applyPlayerConnected(p.userId));
-        socket.off("ROUND_START").on("ROUND_START",           (p: RoundStartPayload)     => applyRoundStart(p));
-        socket.off("ROUND_RESULT").on("ROUND_RESULT",         (p: RoundResultPayload)    => applyRoundResult(p));
+        socket.off("ROUND_START").on("ROUND_START",           (p: RoundStartPayload)     => {
+            console.info("[WS] ROUND_START received", { roundNumber: p.roundNumber, totalRounds: p.totalRounds, challengeId: p.challenge.id });
+            applyRoundStart(p);
+        });
+        socket.off("ROUND_RESULT").on("ROUND_RESULT",         (p: RoundResultPayload)    => {
+            console.info("[WS] ROUND_RESULT received", { userId: p.userId, verdict: p.verdict, roundNumber: p.roundState.currentRound });
+            applyRoundResult(p);
+        });
         socket.off("TIMER_SYNC").on("TIMER_SYNC",             (p: TimerSyncPayload)      => applyTimerSync(p));
 
         // ── FIX: wait for last ROUND_RESULT before applying SESSION_END ──
