@@ -21,7 +21,7 @@ const BOOT_LINES = [
   "SPAWNING ARENA INSTANCES",
   "ALL SYSTEMS NOMINAL. READY",
 ];
-
+  
 const MILESTONES = [25, 50, 75, 100];
 
 const GLITCH_CHARS = "!@#$%^&*<>[]{}|\\/?~`";
@@ -33,7 +33,7 @@ const GLITCH_CHARS = "!@#$%^&*<>[]{}|\\/?~`";
 function useAudioEngine() {
   const ctxRef    = useRef<AudioContext | null>(null);
   const masterRef = useRef<GainNode | null>(null);
-  const humRef    = useRef<OscillatorNode | null>(null);
+  const humRefs = useRef<OscillatorNode[]>([]);
   const mutedRef  = useRef(false);
 
   const getCtx = useCallback((): AudioContext | null => {
@@ -67,29 +67,42 @@ function useAudioEngine() {
 
   // Low ambient boot hum — layered oscillators
   const startHum = useCallback(() => {
-    const ctx = getCtx(); const dest = getDest();
-    if (!ctx || !dest) return;
-    try {
-      [40, 80, 160].forEach((freq, i) => {
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const filt = ctx.createBiquadFilter();
-        filt.type = "lowpass"; filt.frequency.value = 200;
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(freq, ctx.currentTime);
-        gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.015 - i * 0.003, ctx.currentTime + 1.5);
-        osc.connect(filt); filt.connect(gain); gain.connect(dest);
-        osc.start();
-        if (i === 0) humRef.current = osc;
-      });
-    } catch {}
-  }, [getCtx, getDest]);
+  const ctx = getCtx(); const dest = getDest();
+  if (!ctx || !dest) return;
+  try {
+    humRefs.current = []; // clear any old refs
+    [40, 80, 160].forEach((freq, i) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filt = ctx.createBiquadFilter();
+      filt.type = "lowpass"; filt.frequency.value = 200;
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.015 - i * 0.003, ctx.currentTime + 1.5);
+      osc.connect(filt); filt.connect(gain); gain.connect(dest);
+      osc.start();
+      humRefs.current.push(osc); // ✅ save ALL three
+    });
+  } catch {}
+}, [getCtx, getDest]);
 
-  const stopHum = useCallback(() => {
-    try { humRef.current?.stop(); } catch {}
+const stopHum = useCallback(() => {
+  humRefs.current.forEach(osc => {
+    try { osc.stop(); } catch {}
+  });
+  humRefs.current = []; 
+}, []);
+
+  const closeCtx = useCallback(() => {
+  try {
+    humRefs.current.forEach(osc => { try { osc.stop(); } catch {} });
+    humRefs.current = [];
+    ctxRef.current?.close();
+    ctxRef.current  = null;
+    masterRef.current = null;
+  } catch {}
   }, []);
-
   // CRT static burst
   const playCRTStatic = useCallback(() => {
     const ctx = getCtx(); const dest = getDest();
@@ -293,7 +306,7 @@ function useAudioEngine() {
   }, [getCtx, getDest]);
 
   return {
-    resume, setMuted, startHum, stopHum,
+    resume, setMuted, startHum, stopHum, closeCtx,
     playCRTStatic, playKeyClick, playGlitch,
     playLetterDrop, playTick, playBootBeep,
     playReadyChime, playStartChime, playExit,
@@ -309,6 +322,7 @@ const SplashScreen = memo(function SplashScreen({
 }: { onStart: () => void }) {
   return (
     <motion.div
+      data-preloader="true"
       className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center gap-10 cursor-pointer select-none"
       onClick={onStart}
       initial={{ opacity: 0 }}
@@ -830,7 +844,10 @@ export function PreLoader({ onComplete }: { onComplete: () => void }) {
       audio.stopHum();
       setExiting(true);
     }, 900);
-    setTimeout(() => onComplete(), 1700);
+    setTimeout(() => {
+      audio.closeCtx();
+      onComplete();
+    }, 1700);
   }, [progress === 100]);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -851,6 +868,7 @@ export function PreLoader({ onComplete }: { onComplete: () => void }) {
         {started && !exiting && (
           <motion.div
             key="boot"
+            data-preloader="true"
             className="fixed inset-0 z-[9999] bg-background flex flex-col items-center justify-center overflow-hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

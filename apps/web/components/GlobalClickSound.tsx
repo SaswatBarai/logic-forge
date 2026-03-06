@@ -17,6 +17,12 @@ export function GlobalClickSound() {
       const target = e.target as HTMLElement;
       if (!target) return;
 
+      // Don't fire during preloader — PreLoader has its own sounds
+      const isPreloader =
+        target.closest("[data-preloader]") !== null ||
+        document.querySelector("[data-preloader]") !== null;
+      if (isPreloader) return;
+
       const isInteractive = INTERACTIVE.some(selector => {
         try { return target.closest(selector) !== null; }
         catch { return false; }
