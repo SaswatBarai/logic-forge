@@ -53,10 +53,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   debug: process.env.NODE_ENV === "development",
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
   adapter: getMongooseAuthAdapter(),
-  // NOTE: Do NOT set session.strategy here when using an adapter.
-  // NextAuth defaults to "database" strategy when an adapter is provided,
-  // which is required for OAuth providers to persist accounts correctly.
-  // Forcing "jwt" with an adapter causes `error=Configuration` on OAuth callback.
+
+  // Required for middleware to read the session cookie (Edge reads JWT, not DB token)
+  session: { strategy: "jwt" },
+
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -69,20 +69,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       allowDangerousEmailAccountLinking: true,
     }),
   ],
-   callbacks: {
-    async session({ session, user }) {
-      // `user` comes from your Mongo adapter (UserSchema)
-      if (session.user && user) {
-        // make sure client gets the id
-        (session.user as any).id = String((user as any).id ?? (user as any)._id);
 
-        // expose profile fields
-        (session.user as any).displayName =
-          (user as any).displayName || user.name || "";
-
-        (session.user as any).bio = (user as any).bio || "";
+  callbacks: {
+    // Runs at login — embed DB user data into the JWT token
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = String((user as any).id ?? (user as any)._id);
+        token.displayName = (user as any).displayName || user.name || "";
+        token.bio = (user as any).bio || "";
       }
-
+      return token;
+    },
+    // With jwt strategy, use token — NOT user (user is undefined here)
+    async session({ session, token }) {
+      if (session.user && token) {
+        (session.user as any).id = token.id as string;
+        (session.user as any).displayName = token.displayName as string;
+        (session.user as any).bio = token.bio as string;
+      }
       return session;
     },
   },

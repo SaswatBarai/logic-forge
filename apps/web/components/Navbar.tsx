@@ -83,7 +83,7 @@ export const Navbar = () => {
           {[
             { label: "How It Works", href: "/#how",        delay: 0.3 },
             { label: "Challenges",   href: "/#categories", delay: 0.4 },
-            { label: "Story Mode",   href: "/story",       delay: 0.5 },
+            { label: "Dashboard",    href: "/dashboard",   delay: 0.55 },
             { label: "Pricing",      href: "/#",           delay: 0.6 },
           ].map(item => (
             <NavLink key={item.label} {...item} />
