@@ -9,6 +9,7 @@ import {
 } from "@logicforge/types";
 import type { SessionService } from "./session.service";
 import { commitMatchResult } from "./match-record.service.js";
+import { db } from "@logicforge/db";
 
 const QUESTION_ENGINE_URL = process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
 const CODE_RUNNER_URL = process.env.CODE_RUNNER_URL || "http://localhost:3004";
@@ -45,6 +46,8 @@ export interface RoundState {
      * Any later concurrent path that sees the same roundNumber short-circuits.
      */
     lastCompletedRound: number;
+    /** Wall-clock ms when the session started — used to compute real timeTakenMs */
+    sessionStartedAt: number;
 }
 
 interface ChallengeApiResponse {
@@ -185,7 +188,8 @@ export class RoundService {
             usedChallengeIds: [],
             isTerminated: false,
             submittedUserIds: new Set<string>(),
-            lastCompletedRound: 0,   // ← new guard field
+            lastCompletedRound: 0,
+            sessionStartedAt: Date.now(),  // ← track real start time for speed bonus
         };
         roundStates.set(sessionId, state);
         logger.info({ sessionId }, "[ROUND_STATE] Initialized");
@@ -840,23 +844,43 @@ export class RoundService {
         const isDual = session.config.playerFormat === "DUAL";
         const totalRounds = session.config.totalRounds;
 
+        // ── Bug fix: use real elapsed time for speed-bonus calculation ──────────
+        const roundState = roundStates.get(sessionId);
+        const timeTakenMs = roundState
+            ? Date.now() - roundState.sessionStartedAt
+            : totalRounds * 30_000; // fallback if state was already cleaned up
+
+        // ── Bug fix: fetch real globalScore values so ELO isn't always ±16 ─────
+        // (previously both sides were hardcoded to 1000, making eloExpected always
+        //  return 0.5 and the shift always land at exactly K*(actual−0.5))
+        let lpMap: Record<string, number> = {};
+        if (isDual) {
+            try {
+                const userIds = players.map(p => p.userId);
+                const scores = await db.userScore.findMany({ where: { userId: { in: userIds } } });
+                lpMap = Object.fromEntries(scores.map(s => [s.userId, s.globalScore]));
+            } catch (err) {
+                logger.warn({ err, sessionId }, "Could not fetch globalScores for ELO — falling back to 1000");
+            }
+        }
+
         for (const player of players) {
             try {
                 const correctAnswers = player.roundScores.filter(s => s > 0).length;
                 const accuracy = correctAnswers / Math.max(totalRounds, 1);
-                const timeTakenMs = totalRounds * 30_000;
 
                 const mode = isDual ? "ARCADE_DUAL" as const : "ARCADE_SINGLE" as const;
 
+                const opponentId = players.find(p => p.userId !== player.userId)?.userId ?? "";
                 const stats = isDual
                     ? {
                         myScore: player.score,
                         opponentScore: players.find(p => p.userId !== player.userId)?.score ?? 0,
-                        opponentId: players.find(p => p.userId !== player.userId)?.userId ?? "",
+                        opponentId,
                         correctAnswers,
                         totalRounds,
-                        myGlobalLp: 1000,
-                        opponentGlobalLp: 1000,
+                        myGlobalLp: lpMap[player.userId] ?? 1000,
+                        opponentGlobalLp: lpMap[opponentId] ?? 1000,
                     }
                     : { correctAnswers, totalRounds, timeTakenMs, accuracy };
 
