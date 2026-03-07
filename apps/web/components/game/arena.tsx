@@ -169,20 +169,22 @@ export function GameArena() {
                 {/* ── Main Layout ── */}
                 <ResizablePanelGroup direction="horizontal" className="flex-1">
                     <ResizablePanel defaultSize={35} minSize={25}>
-                        <div className="h-full p-4" style={{ backgroundColor: "hsl(230 40% 10%)" }}>
-                            <div className="flex items-center gap-2 mb-3 px-1">
+                        <div className="h-full p-4 flex flex-col overflow-hidden" style={{ backgroundColor: "hsl(230 40% 10%)" }}>
+                            <div className="flex items-center gap-2 mb-3 px-1 shrink-0">
                                 <CopyX className="h-4 w-4 text-slate-300" />
                                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-200">
                                     Secure Brief (Canvas)
                                 </span>
                             </div>
-                            <PromptCanvas
-                                key={`canvas-${challenge.id}`}
-                                title={challenge.title}
-                                description={challenge.description}
-                                codeTemplate={canvasCodeTemplate}
-                                codeLabel="▶ SLOW CODE (O(N²))"
-                            />
+                            <div className="flex-1 min-h-0">
+                                <PromptCanvas
+                                    key={`canvas-${challenge.id}`}
+                                    title={challenge.title}
+                                    description={challenge.description}
+                                    codeTemplate={canvasCodeTemplate}
+                                    codeLabel="▶ SLOW CODE (O(N²))"
+                                />
+                            </div>
                         </div>
                     </ResizablePanel>
 

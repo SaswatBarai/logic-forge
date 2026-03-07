@@ -6,7 +6,7 @@ interface PromptCanvasProps {
     title: string;
     description: string;
     codeTemplate?: string;
-    codeLabel?: string;   
+    codeLabel?: string;
 }
 
 export function PromptCanvas({ title, description, codeTemplate, codeLabel }: PromptCanvasProps) {
@@ -15,94 +15,114 @@ export function PromptCanvas({ title, description, codeTemplate, codeLabel }: Pr
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
 
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width  = rect.width  * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, rect.width, rect.height);
+        const draw = () => {
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
 
-        // ── Title ──
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 24px var(--font-sans), sans-serif";
-        ctx.fillText(title, 20, 40);
+            const dpr  = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            canvas.width  = rect.width  * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            ctx.clearRect(0, 0, rect.width, rect.height);
 
-        // ── Separator ──
-        ctx.strokeStyle = "#27272a";
-        ctx.beginPath();
-        ctx.moveTo(20, 60);
-        ctx.lineTo(rect.width - 20, 60);
-        ctx.stroke();
+            // ── Title ──
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 16px var(--font-sans), sans-serif";
+            ctx.fillText(title, 0, 24);
 
-        // ── Description ──
-        ctx.font = "16px var(--font-sans), sans-serif";
-        ctx.fillStyle = "#a1a1aa";
-
-        const words = description.split(" ");
-        let line = "";
-        let y = 90;
-        const maxWidth = rect.width - 40;
-        const lineHeight = 24;
-
-        for (let n = 0; n < words.length; n++) {
-            const testLine = line + words[n] + " ";
-            if (ctx.measureText(testLine).width > maxWidth && n > 0) {
-                ctx.fillText(line, 20, y);
-                line = words[n] + " ";
-                y += lineHeight;
-            } else {
-                line = testLine;
-            }
-        }
-        ctx.fillText(line, 20, y);
-        y += lineHeight + 10;
-
-        // ── Code block (only if provided) ──
-        if (codeTemplate) {
-            const codeLines = codeTemplate.split("\n");
-            const blockHeight = codeLines.length * 20 + 28;
-
-            // Code block background
-            ctx.fillStyle = "#18181b";
-            ctx.fillRect(16, y, rect.width - 32, blockHeight);
-
-            // Code border
-            ctx.strokeStyle = "#3f3f46";
+            // ── Separator ──
+            ctx.strokeStyle = "#27272a";
             ctx.lineWidth = 1;
-            ctx.strokeRect(16, y, rect.width - 32, blockHeight);
+            ctx.beginPath();
+            ctx.moveTo(0, 36);
+            ctx.lineTo(rect.width, 36);
+            ctx.stroke();
 
-            // Dynamic label — amber for TRACING, red for BOTTLENECK
-            const isTracing = codeLabel?.includes("TRACE");
-            ctx.fillStyle = isTracing ? "#fbbf24" : "#ef4444";
-            ctx.font = "bold 11px monospace";
-            ctx.fillText(
-                codeLabel ?? "▶ SLOW CODE (O(N²))",   // ← fallback kept
-                24,
-                y + 14
-            );
-            y += 24;
+            // ── Description ──
+            ctx.font = "12px var(--font-sans), sans-serif";
+            ctx.fillStyle = "#a1a1aa";
 
-            // Code lines
-            ctx.font = "13px monospace";
-            ctx.fillStyle = isTracing ? "#93c5fd" : "#86efac"; // blue for tracing, green for bottleneck
-            for (const codeLine of codeLines) {
-                ctx.fillText(codeLine, 24, y + 6);
-                y += 20;
+            const words  = description.split(" ");
+            let line     = "";
+            let y        = 56;
+            const maxW   = rect.width;
+            const lineH  = 18;
+
+            for (let n = 0; n < words.length; n++) {
+                const test = line + words[n] + " ";
+                if (ctx.measureText(test).width > maxW && n > 0) {
+                    ctx.fillText(line, 0, y);
+                    line = words[n] + " ";
+                    y += lineH;
+                } else {
+                    line = test;
+                }
             }
-        }
+            ctx.fillText(line, 0, y);
+        };
 
-    }, [title, description, codeTemplate, codeLabel]); 
+        draw();
+        const ro = new ResizeObserver(draw);
+        ro.observe(canvas);
+        return () => ro.disconnect();
+
+    }, [title, description]);
+
+    // ✅ Split on real newline — NOT escaped \\n
+    const codeLines = codeTemplate ? codeTemplate.split("\n") : [];
+
     return (
-        <div className="w-full h-full relative" style={{ userSelect: "none" }}>
+        <div className="w-full h-full flex flex-col gap-2 overflow-hidden">
+
+            {/* Canvas: title + description — fixed height, shrinks if no code */}
             <canvas
                 ref={canvasRef}
-                style={{ width: "100%", height: "100%", display: "block" }}
-                className="rounded-md border border-zinc-800 bg-zinc-950 shadow-sm"
+                className="w-full shrink-0 bg-transparent"
+                style={{ height: codeTemplate ? "100px" : "100%" }}
             />
-            <div className="absolute inset-0 z-10" onContextMenu={(e) => e.preventDefault()} />
+
+            {/* Code block: real DOM — fills remaining space, scrolls */}
+            {codeTemplate && (
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden border border-foreground/15"
+                    style={{ backgroundColor: "hsl(230 40% 6%)" }}>
+
+                    {/* Label bar */}
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-foreground/15 shrink-0"
+                        style={{ backgroundColor: "hsl(230 40% 9%)" }}>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-primary font-mono">
+                            {codeLabel ?? "▶ SLOW CODE (O(N²))"}
+                        </span>
+                        <span className="text-[9px] font-mono text-foreground/30">read-only</span>
+                    </div>
+
+                    {/* Line numbers + code — scroll together horizontally, independently vertical */}
+                    <div className="flex flex-1 min-h-0 overflow-hidden">
+
+                        {/* Line numbers — never scrolls horizontally */}
+                        <div
+                            className="select-none shrink-0 py-3 px-2 text-right border-r border-foreground/10 overflow-y-auto overflow-x-hidden"
+                            style={{ backgroundColor: "hsl(230 40% 8%)", minWidth: "2.25rem" }}
+                        >
+                            {codeLines.map((_, i) => (
+                                <div key={i} className="text-[11px] font-mono leading-6 text-foreground/25">
+                                    {i + 1}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Code — both axes scroll */}
+                        <pre
+                            className="flex-1 py-3 px-4 text-[12px] font-mono leading-6 text-slate-200 overflow-auto whitespace-pre m-0"
+                            style={{ backgroundColor: "hsl(230 40% 6%)" }}
+                        >
+                            {codeTemplate}
+                        </pre>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
