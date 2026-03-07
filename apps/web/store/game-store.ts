@@ -50,11 +50,19 @@ export interface RoundResult {
 }
 
 export interface RoundHistoryEntry {
-    roundNumber:     number;
-    userId:          string;
-    verdict:         "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
-    score:           number;
+    roundNumber: number;
+    userId: string;
+    verdict: "CORRECT" | "PARTIAL" | "INCORRECT" | "COMPILE_ERROR" | "RUNTIME_ERROR" | "TIMEOUT";
+    score: number;
     executionTimeMs: number;
+}
+
+export interface OpponentProgressPayload {
+    fromUserId: string;
+    answered: boolean;
+    round: number;
+    livesRemaining?: number;
+    allSubmitted: boolean;
 }
 
 interface GameState {
@@ -76,6 +84,10 @@ interface GameState {
     abortReason: string | null;
     timeRemaining: number | null;
     roundHistory: RoundHistoryEntry[];
+    /** Latest OPPONENT_PROGRESS snapshot — null until first event arrives */
+    opponentProgress: OpponentProgressPayload | null;
+    /** Whether the local player has submitted their answer for the current round */
+    hasSubmittedThisRound: boolean;
 
     setConnected: (v: boolean) => void;
     setSocketStatus: (v: GameState["socketStatus"]) => void;
@@ -90,6 +102,7 @@ interface GameState {
     applyTimerSync: (payload: TimerSyncPayload) => void;
     applySessionEnd: (payload: SessionEndPayload) => void;
     applySessionAborted: (payload: SessionAbortedPayload) => void;
+    applyOpponentProgress: (payload: OpponentProgressPayload) => void;
     dismissResultOverlay: () => void;
     reset: () => void;
 }
@@ -161,6 +174,8 @@ const initialState = {
     abortReason: null,
     timeRemaining: null,
     roundHistory: [] as RoundHistoryEntry[],
+    opponentProgress: null as OpponentProgressPayload | null,
+    hasSubmittedThisRound: false,
 };
 
 export const useGameStore = create<GameState>()(
@@ -220,11 +235,16 @@ export const useGameStore = create<GameState>()(
             s.challenge = payload.challenge;
             s.players = payload.players;
             s.lastResult = null;
-            // s.showResultOverlay = false;
+            s.showResultOverlay = false;
             s.timeRemaining = payload.challenge.timeLimitMs;
+            // Reset per-round dual state
+            s.opponentProgress = null;
+            s.hasSubmittedThisRound = false;
         }),
 
         applyRoundResult: (payload) => set((s) => {
+            // Mark that we have submitted this round (used by dual-mode waiting overlay)
+            s.hasSubmittedThisRound = true;
             // ✅ FIX: use s.currentRound directly — it's set correctly by applyRoundStart.
             // The old formula `payload.roundState.currentRound - 1` was off-by-one
             // on round 5 (last round), saving it as round 4 which already existed,
@@ -243,15 +263,15 @@ export const useGameStore = create<GameState>()(
 
             s.players = payload.players;
             s.lastResult = {
-                userId:          payload.userId,
-                challengeId:     payload.challengeId,
-                passed:          payload.passed,
-                points:          payload.points,
-                verdict:         payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT"),
+                userId: payload.userId,
+                challengeId: payload.challengeId,
+                passed: payload.passed,
+                points: payload.points,
+                verdict: payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT"),
                 executionTimeMs: payload.executionTimeMs ?? 0,
             };
             s.showResultOverlay = true;
-            s.timeRemaining     = null;
+            s.timeRemaining = null;
 
             if (payload.livesRemaining !== undefined) {
                 s.myLives = payload.livesRemaining;
@@ -259,10 +279,10 @@ export const useGameStore = create<GameState>()(
 
             const verdict = (payload.verdict ?? (payload.passed ? "CORRECT" : "INCORRECT")) as RoundHistoryEntry["verdict"];
             s.roundHistory.push({
-                roundNumber:     roundNum,
-                userId:          payload.userId,
+                roundNumber: roundNum,
+                userId: payload.userId,
                 verdict,
-                score:           payload.points,
+                score: payload.points,
                 executionTimeMs: payload.executionTimeMs ?? 0,
             });
 
@@ -290,6 +310,10 @@ export const useGameStore = create<GameState>()(
             s.abortReason = payload.reason;
             s.challenge = null;
             s.timeRemaining = null;
+        }),
+
+        applyOpponentProgress: (payload) => set((s) => {
+            s.opponentProgress = payload;
         }),
 
         dismissResultOverlay: () => set((s) => { s.showResultOverlay = false; }),

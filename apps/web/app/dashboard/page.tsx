@@ -7,6 +7,7 @@ import { Navbar } from "@/components/Navbar";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Zap, BookOpen, Trophy, Star, TrendingUp, Hash } from "lucide-react";
+import { MatchHistorySection } from "@/components/dashboard/MatchHistorySection";
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
@@ -148,27 +149,11 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Stats Row ── */}
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-foreground/40 mb-4">
-            ▶ Your Stats
+            ▶ Logic Points & History
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { icon: TrendingUp, label: "Rating",       value: "1,240", color: "text-accent"   },
-              { icon: Trophy,     label: "Matches Won",  value: "42",    color: "text-primary"  },
-              { icon: Hash,       label: "Global Rank",  value: "#4,892", color: "text-foreground" },
-            ].map(({ icon: Icon, label, value, color }) => (
-              <div key={label}
-                className="border-2 border-foreground/20 bg-card px-6 py-5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${color} opacity-60`} />
-                  <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">{label}</span>
-                </div>
-                <span className={`text-xl font-mono font-black ${color}`}>{value}</span>
-              </div>
-            ))}
-          </div>
+          <MatchHistorySection />
         </div>
 
       </main>

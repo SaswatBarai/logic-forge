@@ -11,6 +11,7 @@ import {
     TimerSyncPayload,
     SessionEndPayload,
     SessionAbortedPayload,
+    OpponentProgressPayload,
 } from "@/store/game-store";
 
 const GAME_WS_URL = process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:3001";
@@ -45,7 +46,7 @@ export function useGameEngine() {
         setConnected, setSocketStatus, setMatchStatus, setQueueError,
         applyMatched, setQueuedUserId, applySessionJoined, applyPlayerConnected,
         applyRoundStart, applyRoundResult, applyTimerSync,
-        applySessionEnd, applySessionAborted,
+        applySessionEnd, applySessionAborted, applyOpponentProgress,
     } = useGameStore();
 
     const joinSession = useCallback((sessionId: string, userIdOverride?: string) => {
@@ -120,20 +121,20 @@ export function useGameEngine() {
             setQueueError(p.message ?? "Failed to join session");
         });
 
-        socket.off("SESSION_JOINED").on("SESSION_JOINED",     (p: SessionJoinedPayload)  => {
+        socket.off("SESSION_JOINED").on("SESSION_JOINED", (p: SessionJoinedPayload) => {
             console.info("[WS] SESSION_JOINED received", p);
             applySessionJoined(p);
         });
-        socket.off("PLAYER_CONNECTED").on("PLAYER_CONNECTED", (p: { userId: string })    => applyPlayerConnected(p.userId));
-        socket.off("ROUND_START").on("ROUND_START",           (p: RoundStartPayload)     => {
+        socket.off("PLAYER_CONNECTED").on("PLAYER_CONNECTED", (p: { userId: string }) => applyPlayerConnected(p.userId));
+        socket.off("ROUND_START").on("ROUND_START", (p: RoundStartPayload) => {
             console.info("[WS] ROUND_START received", { roundNumber: p.roundNumber, totalRounds: p.totalRounds, challengeId: p.challenge.id });
             applyRoundStart(p);
         });
-        socket.off("ROUND_RESULT").on("ROUND_RESULT",         (p: RoundResultPayload)    => {
+        socket.off("ROUND_RESULT").on("ROUND_RESULT", (p: RoundResultPayload) => {
             console.info("[WS] ROUND_RESULT received", { userId: p.userId, verdict: p.verdict, roundNumber: p.roundState.currentRound });
             applyRoundResult(p);
         });
-        socket.off("TIMER_SYNC").on("TIMER_SYNC",             (p: TimerSyncPayload)      => applyTimerSync(p));
+        socket.off("TIMER_SYNC").on("TIMER_SYNC", (p: TimerSyncPayload) => applyTimerSync(p));
 
         // ── FIX: wait for last ROUND_RESULT before applying SESSION_END ──
         socket.off("SESSION_END").on("SESSION_END", (p: SessionEndPayload) => {
@@ -157,12 +158,17 @@ export function useGameEngine() {
             tryApply(10); // up to 1000ms wait, checking every 100ms
         });
 
-        socket.off("SESSION_ABORTED").on("SESSION_ABORTED",   (p: SessionAbortedPayload) => applySessionAborted(p));
-        socket.off("ERROR").on("ERROR",                       (p: { message: string })   => console.error("[WS] Error:", p.message));
+        socket.off("SESSION_ABORTED").on("SESSION_ABORTED", (p: SessionAbortedPayload) => applySessionAborted(p));
+        socket.off("ERROR").on("ERROR", (p: { message: string }) => console.error("[WS] Error:", p.message));
 
         socket.on("TIMER_EXPIRED", (p: { roundNumber: number }) => {
             console.warn("[WS] TIMER_EXPIRED for round", p.roundNumber);
             applyTimerSync({ roundNumber: p.roundNumber, remainingMs: 0, serverTimestamp: Date.now() });
+        });
+
+        socket.off("OPPONENT_PROGRESS").on("OPPONENT_PROGRESS", (p: OpponentProgressPayload) => {
+            console.info("[WS] OPPONENT_PROGRESS received", p);
+            applyOpponentProgress(p);
         });
 
         return () => {
@@ -178,6 +184,7 @@ export function useGameEngine() {
             socket.off("ROUND_RESULT");
             socket.off("TIMER_SYNC");
             socket.off("TIMER_EXPIRED");
+            socket.off("OPPONENT_PROGRESS");
             socket.off("SESSION_END");
             socket.off("SESSION_ABORTED");
             socket.off("ERROR");
@@ -282,6 +289,8 @@ export function useGameEngine() {
         roundHistory: state.roundHistory,
         myLives: state.myLives,
         abortReason: state.abortReason,
+        opponentProgress: state.opponentProgress,
+        hasSubmittedThisRound: state.hasSubmittedThisRound,
         enterQueue,
         joinSession,
         readyUp: useCallback(() => {
@@ -298,5 +307,11 @@ export function useGameEngine() {
         submitAnswer,
         dismissResultOverlay: state.dismissResultOverlay,
         reset: state.reset,
+        reconnect: useCallback(() => {
+            const socket = getSocket();
+            setSocketStatus("CONNECTING");
+            socket.disconnect();
+            socket.connect();
+        }, [setSocketStatus]),
     };
 }

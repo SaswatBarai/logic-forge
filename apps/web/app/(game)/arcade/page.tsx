@@ -471,7 +471,7 @@ export default function ArcadeModePage() {
     const {
         connected, socketStatus, matchStatus,
         sessionStatus, sessionId, queueError,
-        enterQueue, joinSession, reset,
+        enterQueue, joinSession, reset, reconnect,
     } = useGameEngine();
 
     const sfx   = useArcadeSounds();
@@ -736,6 +736,20 @@ export default function ArcadeModePage() {
                                                 <RefreshCw className="size-3.5" /> Retry
                                             </button>
                                         </motion.div>
+                                    )}
+                                    {!connected && (
+                                        <div className="flex flex-col gap-2">
+                                            <p className="text-xs text-muted-foreground max-w-sm">
+                                                Game server not connected. If running locally, start it with <span className="font-mono text-foreground/80">pnpm --filter @logicforge/game-api dev</span>.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => { sfx.tick(); reconnect(); }}
+                                                className="w-fit px-4 py-2 border-2 border-foreground/30 text-xs font-black uppercase tracking-widest flex items-center gap-2 hover:bg-foreground/5 transition-colors"
+                                            >
+                                                <RefreshCw className="size-3.5" /> Retry connection
+                                            </button>
+                                        </div>
                                     )}
                                     <motion.button
                                         className="group relative bg-primary px-10 py-5 border-2 border-foreground text-xl font-black uppercase tracking-widest flex items-center gap-3 disabled:opacity-40 disabled:cursor-not-allowed w-fit overflow-hidden shadow-[4px_4px_0px_0px_hsl(var(--foreground))]"

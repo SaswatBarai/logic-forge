@@ -11,6 +11,7 @@ import { PromptCanvas } from "./prompt-canvas";
 import { TimerBar } from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap, Eye } from "lucide-react";
+import { DualProgressHud } from "./dual-progress-hud";
 
 const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
 const MCQ_CATEGORIES = new Set(["THE_BOTTLENECK_BREAKER"]);
@@ -82,6 +83,22 @@ export function GameArena() {
             ? tracingAnswer.trim().length > 0
             : true;
 
+    // ── Dual-mode "waiting for opponent" overlay (Timer Mode only) ──
+    // Visible once the local player has received their ROUND_RESULT but the
+    // round has not yet advanced (i.e. the opponent is still solving).
+    const sessionStatus = useGameStore((s) => s.sessionStatus);
+    const hasSubmittedThisRound = useGameStore((s) => s.hasSubmittedThisRound);
+    const showResultOverlay = useGameStore((s) => s.showResultOverlay);
+    const lastResult = useGameStore((s) => s.lastResult);
+    const isTimerDual =
+        !isSingle && config?.sessionType === "TIMER";
+    const showWaitingOverlay =
+        isTimerDual &&
+        hasSubmittedThisRound &&
+        !showResultOverlay &&
+        lastResult !== null &&
+        sessionStatus === "ACTIVE";
+
     const handleSubmit = () => {
         if (isSubmitting || !sessionId || !challenge.id || !canSubmit) return;
         setIsSubmitting(true);
@@ -120,7 +137,7 @@ export function GameArena() {
             <RoundResultOverlay />
 
             <div
-                className="h-[calc(100vh-4rem)] w-full flex flex-col overflow-hidden border-2 border-foreground shadow-retro-lg"
+                className="relative h-[calc(100vh-4rem)] w-full flex flex-col overflow-hidden border-2 border-foreground shadow-retro-lg"
                 style={{ backgroundColor: "hsl(var(--editor-bg))" }}
             >
                 {/* ── Top HUD ── */}
@@ -150,6 +167,9 @@ export function GameArena() {
                         )}
                     </div>
 
+                    {/* Dual HUD — only visible in DUAL sessions */}
+                    {!isSingle && <DualProgressHud />}
+
                     <div className="flex gap-3">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
@@ -165,6 +185,21 @@ export function GameArena() {
                 </div>
 
                 <TimerBar />
+
+                {/* Waiting for opponent overlay (Timer Mode dual only) */}
+                {showWaitingOverlay && (
+                    <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none">
+                        <div className="flex flex-col items-center gap-4 border-2 border-foreground bg-card p-8 shadow-retro-lg">
+                            <Loader2 className="size-10 text-primary animate-spin" />
+                            <p className="text-sm font-black uppercase tracking-widest text-foreground/80">
+                                Waiting for opponent…
+                            </p>
+                            <p className="text-[10px] font-medium text-foreground/50">
+                                Your answer has been submitted. Hold tight!
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {/* ── Main Layout ── */}
                 <ResizablePanelGroup direction="horizontal" className="flex-1">

@@ -74,6 +74,18 @@ enum Language {
   PYTHON
 }
 
+enum MatchGameMode {
+  ARCADE_SINGLE
+  ARCADE_DUAL
+  STORY
+}
+
+enum MatchOutcome {
+  WIN
+  LOSS
+  DRAW
+  COMPLETED
+}
 // ─── Core Game Models ────────────────────────────────────────────────
 
 model GameSession {
@@ -204,4 +216,28 @@ model RiskScore {
   computedAt          DateTime    @default(now())
 
   session             GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+
+model MatchRecord {
+  id          String        @id @default(uuid())
+  userId      String        // FK to MongoDB User._id (string ref, no relation)
+  gameMode    MatchGameMode
+  outcome     MatchOutcome
+  scoreEarned Int
+  stats       Json
+  createdAt   DateTime      @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+model UserScore {
+  id          String   @id @default(uuid())
+  userId      String   @unique   // FK to MongoDB User._id
+  globalScore Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@index([globalScore])
 }
