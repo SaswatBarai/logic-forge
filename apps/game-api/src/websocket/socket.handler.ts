@@ -1,9 +1,63 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import type { CreateSessionPayload } from "@logicforge/types";
 import { logger } from "../app";
+import { config } from "../app";
 import { SessionService } from "../services/session.service";
 import { MatchmakerService } from "../services/matchmaker.service";
 import { RoundService } from "../services/round.service";
+
+const TELEMETRY_EVENTS = [
+  "PASTE_DETECTED",
+  "FOCUS_LOST",
+  "FOCUS_RESTORED",
+  "KEYSTROKE_BURST",
+  "MOUSE_INACTIVE",
+  "SOLUTION_SUBMITTED",
+  "FAST_SOLUTION",
+] as const;
+
+async function relayToAntiCheat(
+  socket: Socket,
+  eventType: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const sessionId =
+    (payload.sessionId as string) ?? (socket.data?.sessionId as string);
+  const candidateId =
+    (payload.candidateId as string) ??
+    (payload.userId as string) ??
+    (socket.data?.userId as string);
+  if (!sessionId || !candidateId) {
+    logger.warn({ eventType, socketId: socket.id }, "Anti-cheat relay skipped: missing sessionId or candidateId");
+    return;
+  }
+  const base = config.services.antiCheat;
+  const url = `${base}/api/ingest`;
+  const body = {
+    sessionId,
+    candidateId,
+    eventType,
+    timestamp: (payload.timestamp as string) ?? new Date().toISOString(),
+    payload: payload.payload ?? undefined,
+  };
+  logger.info({ eventType, sessionId, candidateId, url }, "Relaying to anti-cheat");
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      logger.error({ eventType, status: res.status, body: text }, "Anti-cheat ingest rejected");
+    } else {
+      const result = await res.json().catch(() => ({}));
+      logger.info({ eventType, sessionId, riskScore: result?.riskScore, flagLevel: result?.flagLevel }, "Anti-cheat ingest OK");
+    }
+  } catch (err) {
+    logger.error({ err, eventType, url }, "Anti-cheat relay network error — is the anti-cheat service running?");
+  }
+}
 
 export function registerSocketHandlers(
     io: SocketServer,
@@ -205,6 +259,14 @@ export function registerSocketHandlers(
                 logger.error({ err }, "Error in SUBMIT_ANSWER handler");
             }
         });
+
+        // ─── Telemetry relay to anti-cheat ─────────────────────────────────
+        for (const event of TELEMETRY_EVENTS) {
+            socket.on(event, (payload: unknown) => {
+                logger.info({ socketId: socket.id, event, userId: socket.data?.userId }, "Telemetry event received");
+                relayToAntiCheat(socket, event, (payload as Record<string, unknown>) ?? {});
+            });
+        }
 
         // ─── DISCONNECT ──────────────────────────────────────────────────
         socket.on("disconnect", async (reason: string) => {
