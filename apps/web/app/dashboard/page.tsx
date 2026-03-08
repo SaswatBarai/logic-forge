@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { GlobalScoreCard }       from "./GlobalScoreCard";
 import { MatchHistorySection }   from "./MatchHistorySection";
+import { ActivityHeatmap }       from "./ActivityHeatmap";
 import type { MatchRecord }      from "./MatchHistoryTable";
 
 // ── SectionHeader ─────────────────────────────────────────────────────────────
@@ -297,6 +298,12 @@ export default function DashboardPage() {
               />
             </div>
           </div>
+        </section>
+
+        {/* ── Forge Activity Map ──────────────────────────────────────────── */}
+        <section className="flex flex-col gap-4">
+          <SectionHeader label="Forge Activity Map" sub="Last 12 months" />
+          <ActivityHeatmap />
         </section>
 
         {/* ── SECTION 2 · Quick Play ───────────────────────────────────────── */}

@@ -46,5 +46,9 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
+# Prisma query engine binary for Alpine (linux-musl)
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client/*.node ./node_modules/.prisma/client/
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma/client/*.node ./apps/web/.next/server/
+
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]

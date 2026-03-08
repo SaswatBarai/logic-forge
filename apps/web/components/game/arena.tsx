@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useGameEngine } from "@/hooks/use-game-engine";
@@ -10,6 +10,10 @@ import { McqSelector } from "./mcq-selector";
 import { PromptCanvas } from "./prompt-canvas";
 import { TimerBar } from "./timer-bar";
 import { RoundResultOverlay } from "./round-result-overlay";
+import { OpponentTelemetry } from "./opponent-telemetry";
+import { SurvivalHUD } from "./survival-hud";
+import { SurvivalTransition } from "./survival-transition";
+import { useArenaSFX } from "./arena-sfx-context";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap, Eye } from "lucide-react";
 import { DualProgressHud } from "./dual-progress-hud";
 
@@ -46,6 +50,7 @@ export function GameArena() {
     const {
         challenge, submitAnswer,
         sessionId, currentRound, totalRounds, players,
+        emitTypingTelemetry,
     } = useGameEngine();
 
     const [code, setCode] = useState(challenge?.codeTemplate || "");
@@ -58,16 +63,35 @@ export function GameArena() {
         setMcqSelected(null);
         setTracingAnswer("");
         setIsSubmitting(false);
-    }, [challenge?.id]);
+    }, [challenge?.id, currentRound]);
 
     const roundHistory = useGameStore((s) => s.roundHistory);
     const config = useGameStore((s) => s.config);
+    const survivalActive = useGameStore((s) => s.survivalActive);
+    const arenaSFX = useArenaSFX();
 
     const isSingle = config?.playerFormat === "SINGLE";
     const isBlankChallenge = BLANK_CATEGORIES.has(challenge?.category ?? "");
     const isMcqChallenge = MCQ_CATEGORIES.has(challenge?.category ?? "") && !!challenge?.mcqOptions;
     const isTracingChallenge = TRACING_CATEGORIES.has(challenge?.category ?? "");
     const editorLanguage = resolveEditorLanguage(challenge?.language);
+
+    const templateLength = challenge?.codeTemplate?.length ?? 0;
+    const prevLenRef = useRef(0);
+    useEffect(() => {
+        if (isSingle || !sessionId) return;
+        const isCodeRound = !isMcqChallenge && !isTracingChallenge;
+        if (!isCodeRound) return;
+
+        const interval = setInterval(() => {
+            const len = code.length;
+            const delta = len - prevLenRef.current;
+            prevLenRef.current = len;
+            const wpm = delta > 0 ? Math.round((delta / 5) / (2 / 60)) : 0;
+            emitTypingTelemetry(len, wpm, len, templateLength || undefined);
+        }, 2000);
+        return () => clearInterval(interval);
+    }, [sessionId, isSingle, isMcqChallenge, isTracingChallenge, code.length, templateLength, emitTypingTelemetry]);
 
     if (!challenge) return null;
 
@@ -135,6 +159,7 @@ export function GameArena() {
     return (
         <>
             <RoundResultOverlay />
+            <SurvivalTransition />
 
             <div
                 className="relative h-[calc(100vh-4rem)] w-full flex flex-col overflow-hidden border-2 border-foreground shadow-retro-lg"
@@ -167,8 +192,21 @@ export function GameArena() {
                         )}
                     </div>
 
+                    {/* Survival streak HUD */}
+                    {survivalActive && <SurvivalHUD />}
                     {/* Dual HUD — only visible in DUAL sessions */}
                     {!isSingle && <DualProgressHud />}
+
+                    {/* Live opponent telemetry (DUAL only) */}
+                    {!isSingle && (
+                        <div className="flex-1 min-w-0 mx-4 max-w-md">
+                            <OpponentTelemetry
+                                myProgress={templateLength ? Math.min(1, code.length / templateLength) : 0}
+                                myCodeLength={code.length}
+                                onOpponentProgressJump={arenaSFX?.opponentProgress}
+                            />
+                        </div>
+                    )}
 
                     <div className="flex gap-3">
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
@@ -213,7 +251,7 @@ export function GameArena() {
                             </div>
                             <div className="flex-1 min-h-0">
                                 <PromptCanvas
-                                    key={`canvas-${challenge.id}`}
+                                    key={`canvas-${currentRound}-${challenge.id}`}
                                     title={challenge.title}
                                     description={challenge.description}
                                     codeTemplate={canvasCodeTemplate}
@@ -259,7 +297,7 @@ export function GameArena() {
                                     <div className="flex-1 min-h-0">
                                         {isMcqChallenge ? (
                                             <McqSelector
-                                                key={`mcq-${challenge.id}`}
+                                                key={`mcq-${currentRound}-${challenge.id}`}
                                                 options={challenge.mcqOptions!}
                                                 language={editorLanguage}
                                                 selected={mcqSelected}
@@ -307,7 +345,7 @@ export function GameArena() {
                                             </div>
                                         ) : (
                                             <CodeEditor
-                                                key={`editor-${challenge.id}`}
+                                                key={`editor-${currentRound}-${challenge.id}`}
                                                 language={editorLanguage}
                                                 code={code}
                                                 onChange={(val) => setCode(val || "")}

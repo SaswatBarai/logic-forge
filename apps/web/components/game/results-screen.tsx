@@ -4,7 +4,7 @@ import { motion }        from "framer-motion";
 import { useSession }    from "next-auth/react";
 import { useGameStore }  from "@/store/game-store";
 import { useGameEngine } from "@/hooks/use-game-engine";
-import { Trophy, Swords, Medal, Star } from "lucide-react";
+import { Trophy, Swords, Medal, Star, Flame } from "lucide-react";
 
 const VERDICT_COLORS: Record<string, string> = {
     CORRECT:       "text-accent",
@@ -18,14 +18,21 @@ const VERDICT_COLORS: Record<string, string> = {
 
 export function ResultsScreen() {
     const { data: session } = useSession();
-    const { reset }         = useGameEngine();
+    const { reset, confirmSurvivalContinue, declineSurvival } = useGameEngine();
 
-    const players      = useGameStore((s) => s.players);
-    const roundHistory = useGameStore((s) => s.roundHistory);
-    const totalRounds  = useGameStore((s) => s.totalRounds);
-    const config       = useGameStore((s) => s.config);
+    const players         = useGameStore((s) => s.players);
+    const roundHistory    = useGameStore((s) => s.roundHistory);
+    const totalRounds      = useGameStore((s) => s.totalRounds);
+    const config          = useGameStore((s) => s.config);
+    const sessionStatus   = useGameStore((s) => s.sessionStatus);
+    const survivalTotalWins = useGameStore((s) => s.survivalTotalWins);
+    const survivalStreak  = useGameStore((s) => s.survivalStreak);
+    const survivalActive  = useGameStore((s) => s.survivalActive);
+    const survivalPendingChoice = useGameStore((s) => s.survivalPendingChoice);
 
     const isSingle = config?.playerFormat === "SINGLE";
+    const isSurvivalOver = sessionStatus === "COMPLETED" && !survivalActive && survivalTotalWins > 0;
+    const showSurvivalChoice = survivalActive && survivalPendingChoice;
 
     const myUserId      = session?.user?.email ?? session?.user?.id ?? "";
     const myPlayer      = players.find((p) => p.userId === myUserId);
@@ -67,6 +74,33 @@ export function ResultsScreen() {
     return (
         <div className="flex-1 flex items-center justify-center px-6 py-16 lg:py-24">
             <div className="w-full max-w-2xl space-y-10">
+
+                {/* Survival Over — shown when survival run ended (lost after at least one win) */}
+                {isSurvivalOver && (
+                    <motion.div
+                        className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-6 flex flex-col items-center gap-3"
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4 }}
+                    >
+                        <div className="flex items-center gap-2">
+                            <Flame className="size-6 text-amber-500" />
+                            <span className="text-sm font-black uppercase tracking-widest text-amber-600">
+                                Survival Over
+                            </span>
+                        </div>
+                        <div className="flex gap-8">
+                            <div className="text-center">
+                                <div className="font-mono font-black text-2xl text-amber-600">{survivalStreak}</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-foreground/60">Final streak</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="font-mono font-black text-2xl text-amber-600">{survivalTotalWins}</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-foreground/60">Total wins</div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
 
                 {/* Outcome banner */}
                 <motion.div className="text-center space-y-6"
@@ -134,27 +168,69 @@ export function ResultsScreen() {
                     </motion.div>
                 )}
 
-                {/* CTA */}
-                <motion.div className="flex gap-6 justify-center"
-                    initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.5 }}>
-                    <motion.button
-                        className="arcade-btn bg-primary px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest"
-                        whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
-                        whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
-                        onClick={reset}
+                {/* Survival choice — continue streak or leave */}
+                {showSurvivalChoice && (
+                    <motion.div
+                        className="rounded-lg border-2 border-amber-500/50 bg-amber-500/10 p-6 flex flex-col items-center gap-4"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
                     >
-                        Play Again
-                    </motion.button>
-                    <motion.button
-                        className="arcade-btn bg-card px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest"
-                        whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
-                        whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
-                        onClick={() => (window.location.href = "/")}
-                    >
-                        Home
-                    </motion.button>
-                </motion.div>
+                        <div className="flex items-center gap-2">
+                            <Flame className="size-6 text-amber-500 animate-pulse" />
+                            <span className="text-sm font-black uppercase tracking-widest text-amber-600">
+                                Streak: {survivalStreak}
+                            </span>
+                            <Flame className="size-6 text-amber-500 animate-pulse" />
+                        </div>
+                        <p className="text-xs font-medium text-foreground/70 text-center max-w-xs">
+                            You won! Continue your streak for +30s bonus time, or cash out and return to the lobby.
+                        </p>
+                        <div className="flex gap-4">
+                            <motion.button
+                                className="arcade-btn bg-amber-500 text-background px-8 py-4 border-2 border-foreground shadow-retro font-black uppercase tracking-widest flex items-center gap-2"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={confirmSurvivalContinue}
+                            >
+                                <Flame className="size-4" />
+                                Continue Streak
+                            </motion.button>
+                            <motion.button
+                                className="arcade-btn bg-card px-8 py-4 border-2 border-foreground shadow-retro font-black uppercase tracking-widest"
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={declineSurvival}
+                            >
+                                Leave
+                            </motion.button>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* CTA — hidden when survival choice is showing */}
+                {!showSurvivalChoice && (
+                    <motion.div className="flex gap-6 justify-center"
+                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.6, delay: 0.5 }}>
+                        <motion.button
+                            className="arcade-btn bg-primary px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest"
+                            whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
+                            whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
+                            onClick={reset}
+                        >
+                            Play Again
+                        </motion.button>
+                        <motion.button
+                            className="arcade-btn bg-card px-10 py-5 border-2 border-foreground shadow-retro text-lg font-black uppercase tracking-widest"
+                            whileHover={{ scale: 1.05, boxShadow: "6px 6px 0px 0px hsl(var(--navy))" }}
+                            whileTap={{ scale: 0.95, x: 2, y: 2, boxShadow: "0px 0px 0px 0px hsl(var(--navy))" }}
+                            onClick={() => (window.location.href = "/")}
+                        >
+                            Home
+                        </motion.button>
+                    </motion.div>
+                )}
             </div>
         </div>
     );

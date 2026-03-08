@@ -13,6 +13,7 @@ import { db } from "@logicforge/db";
 
 const QUESTION_ENGINE_URL = process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
 const CODE_RUNNER_URL = process.env.CODE_RUNNER_URL || "http://localhost:3004";
+const SURVIVAL_BONUS_MS = 30_000;
 
 const CATEGORY_TO_QE: Record<BlitzCategory, string> = {
     "MISSING_LINK": "THE_MISSING_LINK",
@@ -231,19 +232,25 @@ export class RoundService {
 
         let res = await fetch(url.toString());
 
-        if (!res.ok && state.usedChallengeIds.length > 0) {
-            logger.warn({ sessionId, category }, "No unused challenges — retrying without excludeIds");
-            const fallbackUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
-            fallbackUrl.searchParams.set("category", qeCategory);
-            if (!isTracing) fallbackUrl.searchParams.set("language", language);
-            res = await fetch(fallbackUrl.toString());
-        }
-
-        if (!res.ok && res.status === 404 && !isTracing) {
-            logger.warn({ sessionId, category, language }, "No challenges for language — retrying without language constraint");
+        // Second try: drop language, keep excludeIds (avoid repeating challenges)
+        if (!res.ok && !isTracing) {
+            logger.warn({ sessionId, category, language }, "No challenges for category+language — retrying without language, keeping excludeIds");
             const noLangUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
             noLangUrl.searchParams.set("category", qeCategory);
+            if (state.usedChallengeIds.length > 0) {
+                for (const id of state.usedChallengeIds) {
+                    noLangUrl.searchParams.append("excludeIds", id);
+                }
+            }
             res = await fetch(noLangUrl.toString());
+        }
+
+        // Third try: category only (last resort — may repeat)
+        if (!res.ok) {
+            logger.warn({ sessionId, category }, "No unused challenges in category — retrying without excludeIds");
+            const fallbackUrl = new URL(`${QUESTION_ENGINE_URL}/api/v1/challenges/random`);
+            fallbackUrl.searchParams.set("category", qeCategory);
+            res = await fetch(fallbackUrl.toString());
         }
 
         if (!res.ok) {
@@ -511,6 +518,17 @@ export class RoundService {
                 state.submittedUserIds.add(userId);
                 const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer: "" });
                 await this.emitToPlayer(io, userId, "ROUND_RESULT", result);
+                const opponents = session.players.filter((uid) => uid !== userId);
+                for (const opponentId of opponents) {
+                    await this.emitToPlayer(io, opponentId, "OPPONENT_TELEMETRY", {
+                        fromUserId: userId,
+                        wpm: 0,
+                        codeLength: 0,
+                        progress: 1,
+                        submitted: true,
+                        verdict: result.verdict,
+                    });
+                }
                 logger.info({ sessionId, userId, roundNumber }, "[ANSWER_RECEIVED] Auto-submitted (timer expired)");
             } catch (err) {
                 logger.error({ err, sessionId, userId }, "Error auto-submitting on timer expiry");
@@ -532,6 +550,7 @@ export class RoundService {
                 cause: "LIVES_EXHAUSTED",
                 finalState: { players: finalSerialized.players },
             });
+            await this.emitSurvivalOutcomes(io, sessionId, finalSerialized.players, "LIVES_EXHAUSTED");
             this.persistMatchResults(io, sessionId, finalSerialized.players, "LIVES_EXHAUSTED")
                 .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
             this.cleanup(sessionId);
@@ -548,6 +567,7 @@ export class RoundService {
                 cause: advancedState.terminationCause ?? "COMPLETED",
                 finalState: { players: finalSerialized.players },
             });
+            await this.emitSurvivalOutcomes(io, sessionId, finalSerialized.players, (advancedState.terminationCause ?? "COMPLETED") as "COMPLETED");
             this.persistMatchResults(io, sessionId, finalSerialized.players, advancedState.terminationCause ?? "COMPLETED")
                 .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
             this.cleanup(sessionId);
@@ -624,6 +644,17 @@ export class RoundService {
                         answer: "",
                     });
                     await this.emitToPlayer(io, userId, "ROUND_RESULT", result);
+                    const opponents = session.players.filter((uid) => uid !== userId);
+                    for (const opponentId of opponents) {
+                        await this.emitToPlayer(io, opponentId, "OPPONENT_TELEMETRY", {
+                            fromUserId: userId,
+                            wpm: 0,
+                            codeLength: 0,
+                            progress: 1,
+                            submitted: true,
+                            verdict: result.verdict,
+                        });
+                    }
                     logger.info({ sessionId, userId, roundNumber }, "[ANSWER_RECEIVED] Auto-submitted (live advance)");
                 } catch (err) {
                     logger.error({ err, sessionId, userId }, "Error auto-submitting in live advance");
@@ -645,6 +676,7 @@ export class RoundService {
                     cause: "LIVES_EXHAUSTED",
                     finalState: { players: finalSerialized.players },
                 });
+                await this.emitSurvivalOutcomes(io, sessionId, finalSerialized.players, "LIVES_EXHAUSTED");
                 this.cleanup(sessionId);
                 return;
             }
@@ -659,6 +691,7 @@ export class RoundService {
                     cause: advancedState.terminationCause ?? "COMPLETED",
                     finalState: { players: finalSerialized.players },
                 });
+                await this.emitSurvivalOutcomes(io, sessionId, finalSerialized.players, (advancedState.terminationCause ?? "COMPLETED") as "COMPLETED");
                 this.persistMatchResults(io, sessionId, finalSerialized.players, advancedState.terminationCause ?? "COMPLETED")
                     .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
                 this.cleanup(sessionId);
@@ -716,7 +749,7 @@ export class RoundService {
             "[ANSWER_RECEIVED] Submission processed"
         );
 
-        // ── OPPONENT_PROGRESS: notify all other players immediately ──────────
+        // ── OPPONENT_PROGRESS + OPPONENT_TELEMETRY: notify all other players ─
         if (totalPlayers > 1) {
             const opponents = (session?.players ?? []).filter((uid) => uid !== userId);
             for (const opponentId of opponents) {
@@ -726,6 +759,14 @@ export class RoundService {
                     round: result.roundState.currentRound,
                     livesRemaining: result.livesRemaining,
                     allSubmitted,
+                });
+                await this.emitToPlayer(io, opponentId, "OPPONENT_TELEMETRY", {
+                    fromUserId: userId,
+                    wpm: 0,
+                    codeLength: 0,
+                    progress: 1,
+                    submitted: true,
+                    verdict: result.verdict,
                 });
             }
             logger.info(
@@ -771,6 +812,7 @@ export class RoundService {
                     cause: "LIVES_EXHAUSTED",
                     finalState: { players: result.players },
                 });
+                await this.emitSurvivalOutcomes(io, sessionId, result.players, "LIVES_EXHAUSTED");
                 this.persistMatchResults(io, sessionId, result.players, "LIVES_EXHAUSTED")
                     .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
                 this.cleanup(sessionId);
@@ -791,6 +833,7 @@ export class RoundService {
                     cause: advancedState.terminationCause ?? "COMPLETED",
                     finalState: { players: result.players },
                 });
+                await this.emitSurvivalOutcomes(io, sessionId, result.players, (advancedState.terminationCause ?? "COMPLETED") as "COMPLETED");
                 this.persistMatchResults(io, sessionId, result.players, advancedState.terminationCause ?? "COMPLETED")
                     .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
                 this.cleanup(sessionId);
@@ -829,6 +872,38 @@ export class RoundService {
         const socketId = await this.sessionService.getSocketId(userId);
         if (socketId) {
             io.to(socketId).emit(event, data);
+        }
+    }
+
+    /** Emit SURVIVAL_CONTINUE to winner(s) and SURVIVAL_ENDED to loser(s) after session end. */
+    private async emitSurvivalOutcomes(
+        io: SocketServer,
+        sessionId: string,
+        players: Array<{ userId: string; score: number }>,
+        cause: "COMPLETED" | "LIVES_EXHAUSTED"
+    ): Promise<void> {
+        const session = await this.sessionService.getSession(sessionId);
+        if (!session) return;
+        const isDual = session.config.playerFormat === "DUAL";
+        if (isDual && players.length >= 2) {
+            const [a, b] = players;
+            const winner = a.score >= b.score ? a : b;
+            const loser = a.score >= b.score ? b : a;
+            await this.emitToPlayer(io, winner.userId, "SURVIVAL_CONTINUE", {
+                bonusTimeMs: SURVIVAL_BONUS_MS,
+                requeue: true,
+            });
+            await this.emitToPlayer(io, loser.userId, "SURVIVAL_ENDED", {});
+        } else if (players.length === 1) {
+            const userId = players[0].userId;
+            if (cause === "COMPLETED") {
+                await this.emitToPlayer(io, userId, "SURVIVAL_CONTINUE", {
+                    bonusTimeMs: SURVIVAL_BONUS_MS,
+                    requeue: true,
+                });
+            } else {
+                await this.emitToPlayer(io, userId, "SURVIVAL_ENDED", {});
+            }
         }
     }
 
