@@ -29,6 +29,16 @@ export interface StoryMessage {
     timestamp: number;
 }
 
+export type ZoneCompletionStatus = "none" | "started" | "completed";
+
+export interface ConsequencePayload {
+    xp?: number;
+    scar?: Scar;
+    debt?: Debt;
+}
+
+export type BossPhase = "intro" | "combat" | "victory" | "defeat" | null;
+
 export interface StoryState {
     // ── Session ──
     zone: StoryZone | null;
@@ -42,17 +52,44 @@ export interface StoryState {
     debts: Debt[];
     energyMeter: number | null;     // Zone 2 only (0–100)
 
+    // ── Boss Combat ──
+    bossHealth: number | null;
+    bossPhase: BossPhase;
+
+    // ── Gamification ──
+    actStreakWithoutScar: number;
+    zoneCompletion: Record<StoryZone, ZoneCompletionStatus>;
+    achievements: string[];
+    consequencePayload: ConsequencePayload | null;
+    showRankUp: StoryRank | null;
+    showBossGate: boolean;
+    zoneCompleteScreen: boolean;
+    allTier1: boolean;
+    streakXpBonus: number | null;
+
     // ── Chat ──
     messages: StoryMessage[];
     isStreaming: boolean;
-    streamingText: string;          // Current partial response
+    streamingText: string;
 
     // ── Choices ──
-    choices: string[] | null;       // Parsed choice options from AI
+    choices: string[] | null;
     waitingForChoice: boolean;
 
     // ── Actions ──
     startZone: (zone: StoryZone) => void;
+    setZoneCompleted: (zone: StoryZone) => void;
+    unlockAchievement: (id: string) => void;
+    setConsequencePayload: (payload: ConsequencePayload | null) => void;
+    clearConsequencePayload: () => void;
+    setShowRankUp: (rank: StoryRank | null) => void;
+    clearShowRankUp: () => void;
+    setShowBossGate: (v: boolean) => void;
+    setZoneCompleteScreen: (v: boolean) => void;
+    incrementActStreak: () => void;
+    setBossPhase: (phase: BossPhase) => void;
+    setBossHealth: (hp: number | null) => void;
+    applyEnergyDelta: (tier: number) => void;
     setStreaming: (v: boolean) => void;
     setStreamingText: (text: string) => void;
     appendStreamingText: (chunk: string) => void;
@@ -72,7 +109,7 @@ export interface StoryState {
 
 // ── Rank thresholds ───────────────────────────────────────────────────────
 
-const RANK_THRESHOLDS: [number, StoryRank][] = [
+export const RANK_THRESHOLDS: [number, StoryRank][] = [
     [0, "Squire"],
     [200, "Knight"],
     [500, "Champion"],
@@ -88,7 +125,18 @@ function computeRank(xp: number): StoryRank {
     return rank;
 }
 
+function rankTier(rank: StoryRank): number {
+    const i = RANK_THRESHOLDS.findIndex(([, r]) => r === rank);
+    return i >= 0 ? i : 0;
+}
+
 // ── Initial state ─────────────────────────────────────────────────────────
+
+const initialZoneCompletion: Record<StoryZone, ZoneCompletionStatus> = {
+    ARCHIVE_CITADEL: "none",
+    FORGE_VILLAGE: "none",
+    WALL_OF_GATES: "none",
+};
 
 const initialState = {
     zone: null as StoryZone | null,
@@ -99,6 +147,17 @@ const initialState = {
     scars: [] as Scar[],
     debts: [] as Debt[],
     energyMeter: null as number | null,
+    bossHealth: null as number | null,
+    bossPhase: null as BossPhase,
+    actStreakWithoutScar: 0,
+    zoneCompletion: { ...initialZoneCompletion },
+    achievements: [] as string[],
+    consequencePayload: null as ConsequencePayload | null,
+    showRankUp: null as StoryRank | null,
+    showBossGate: false,
+    zoneCompleteScreen: false,
+    allTier1: true,
+    streakXpBonus: null as number | null,
     messages: [] as StoryMessage[],
     isStreaming: false,
     streamingText: "",
@@ -122,6 +181,64 @@ export const useStoryStore = create<StoryState>()(
             s.debts = [];
             s.messages = [];
             s.energyMeter = zone === "FORGE_VILLAGE" ? 72 : null;
+            s.bossHealth = null;
+            s.bossPhase = null;
+            s.actStreakWithoutScar = 0;
+            s.allTier1 = true;
+            s.streakXpBonus = null;
+            s.zoneCompletion[zone] = "started";
+            s.consequencePayload = null;
+            s.showRankUp = null;
+            s.showBossGate = false;
+            s.zoneCompleteScreen = false;
+        }),
+
+        setZoneCompleted: (zone) => set((s) => {
+            s.zoneCompletion[zone] = "completed";
+        }),
+
+        unlockAchievement: (id) => set((s) => {
+            if (!s.achievements.includes(id)) s.achievements.push(id);
+        }),
+
+        setConsequencePayload: (payload) => set((s) => {
+            s.consequencePayload = payload;
+        }),
+
+        clearConsequencePayload: () => set((s) => {
+            s.consequencePayload = null;
+        }),
+
+        setShowRankUp: (rank) => set((s) => {
+            s.showRankUp = rank;
+        }),
+
+        clearShowRankUp: () => set((s) => {
+            s.showRankUp = null;
+        }),
+
+        setShowBossGate: (v) => set((s) => {
+            s.showBossGate = v;
+        }),
+
+        setZoneCompleteScreen: (v) => set((s) => {
+            s.zoneCompleteScreen = v;
+        }),
+
+        incrementActStreak: () => set((s) => {
+            s.actStreakWithoutScar += 1;
+        }),
+
+        setBossPhase: (phase) => set((s) => { s.bossPhase = phase; }),
+        setBossHealth: (hp) => set((s) => { s.bossHealth = hp; }),
+
+        applyEnergyDelta: (tier) => set((s) => {
+            if (s.energyMeter === null) return;
+            const deltas: Record<number, number> = { 1: 10, 2: 5, 3: -10, 4: -20 };
+            s.energyMeter = Math.max(0, Math.min(100, s.energyMeter + (deltas[tier] ?? 0)));
+            if (s.energyMeter <= 0) {
+                s.scars.push({ name: "Ferron Collapse", description: "Energy hit zero — system failure.", zone: s.zone!, act: s.act });
+            }
         }),
 
         setStreaming: (v) => set((s) => { s.isStreaming = v; }),
@@ -148,12 +265,23 @@ export const useStoryStore = create<StoryState>()(
         setWaitingForChoice: (v) => set((s) => { s.waitingForChoice = v; }),
 
         updateXP: (delta) => set((s) => {
-            s.xp = Math.max(0, s.xp + delta);
+            const prevRank = s.rank;
+            let bonus = 0;
+            if (s.actStreakWithoutScar >= 2 && delta > 0) {
+                bonus = Math.round(delta * 0.1);
+            }
+            s.streakXpBonus = bonus > 0 ? bonus : null;
+            s.xp = Math.max(0, s.xp + delta + bonus);
             s.rank = computeRank(s.xp);
+            if (rankTier(s.rank) > rankTier(prevRank)) s.showRankUp = s.rank;
         }),
 
         setRank: (rank) => set((s) => { s.rank = rank; }),
-        addScar: (scar) => set((s) => { s.scars.push(scar); }),
+        addScar: (scar) => set((s) => {
+            s.scars.push(scar);
+            s.actStreakWithoutScar = 0;
+            s.allTier1 = false;
+        }),
         addDebt: (debt) => set((s) => { s.debts.push(debt); }),
 
         resolveDebt: (name) => set((s) => {
@@ -163,6 +291,10 @@ export const useStoryStore = create<StoryState>()(
         setEnergyMeter: (value) => set((s) => { s.energyMeter = value; }),
         setAct: (act) => set((s) => { s.act = act; }),
 
-        reset: () => set(() => ({ ...initialState })),
+        reset: () => set((s) => ({
+            ...initialState,
+            zoneCompletion: { ...s.zoneCompletion },
+            achievements: [...s.achievements],
+        })),
     }))
 );

@@ -177,4 +177,29 @@ export class MatchmakerService {
             }
         }
     }
+
+    /**
+     * Requeue a survival winner for the next match. SINGLE: create new session and return MATCHED.
+     * DUAL: put user back in the queue with same key; they will get MATCHED when an opponent joins.
+     */
+    async requeueForSurvival(
+        userId: string,
+        payload: CreateSessionPayload,
+        socketId?: string
+    ): Promise<MatchResult> {
+        const payloadWithUserId = { ...payload, userId };
+        if (payload.playerFormat === "SINGLE") {
+            return this.createSinglePlayerSession(payloadWithUserId);
+        }
+        const key = buildWaitingRoomKey(payloadWithUserId);
+        const entry: WaitingRoomEntry & { socketId?: string } = {
+            userId,
+            payload: payloadWithUserId,
+            queuedAt: Date.now(),
+        };
+        if (typeof socketId === "string") entry.socketId = socketId;
+        dualWaitingRoom.set(key, entry);
+        logger.info({ key, userId }, "Survival winner requeued for Dual Mode");
+        return { status: "QUEUED", queueKey: key };
+    }
 }

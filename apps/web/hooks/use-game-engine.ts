@@ -12,6 +12,7 @@ import {
     SessionEndPayload,
     SessionAbortedPayload,
     OpponentProgressPayload,
+    OpponentTelemetryPayload,
 } from "@/store/game-store";
 
 const GAME_WS_URL = process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:3001";
@@ -19,7 +20,7 @@ const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:3
 
 let _socket: Socket | null = null;
 
-function getSocket(): Socket {
+export function getSocket(): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
             transports: ["websocket", "polling"],
@@ -46,7 +47,8 @@ export function useGameEngine() {
         setConnected, setSocketStatus, setMatchStatus, setQueueError,
         applyMatched, setQueuedUserId, applySessionJoined, applyPlayerConnected,
         applyRoundStart, applyRoundResult, applyTimerSync,
-        applySessionEnd, applySessionAborted, applyOpponentProgress,
+        applySessionEnd, applySessionAborted, applyOpponentProgress, applyOpponentTelemetry,
+        applySurvivalContinue, applySurvivalEnded,
     } = useGameStore();
 
     const joinSession = useCallback((sessionId: string, userIdOverride?: string) => {
@@ -170,6 +172,33 @@ export function useGameEngine() {
             console.info("[WS] OPPONENT_PROGRESS received", p);
             applyOpponentProgress(p);
         });
+        socket.off("OPPONENT_TELEMETRY").on("OPPONENT_TELEMETRY", (p: OpponentTelemetryPayload) => {
+            applyOpponentTelemetry(p);
+        });
+
+        socket.off("SURVIVAL_CONTINUE").on("SURVIVAL_CONTINUE", (p: { bonusTimeMs?: number }) => {
+            const store = useGameStore.getState();
+            const streak = store.survivalStreak + 1;
+            applySurvivalContinue({
+                streak,
+                bonusTimeMs: p.bonusTimeMs ?? 30_000,
+            });
+            console.info("[WS] SURVIVAL_CONTINUE — waiting for user choice", { streak });
+        });
+
+        socket.off("SURVIVAL_ENDED").on("SURVIVAL_ENDED", () => {
+            const store = useGameStore.getState();
+            applySurvivalEnded({
+                finalStreak: store.survivalStreak,
+                totalWins: store.survivalTotalWins ?? 0,
+            });
+            console.info("[WS] SURVIVAL_ENDED — survival run over", { finalStreak: store.survivalStreak, totalWins: store.survivalTotalWins });
+        });
+
+        socket.off("SURVIVAL_QUEUED").on("SURVIVAL_QUEUED", (p: { queueKey: string }) => {
+            setMatchStatus("QUEUED");
+            console.info("[WS] SURVIVAL_QUEUED", p.queueKey);
+        });
 
         return () => {
             socket.off("connect", onConnect);
@@ -185,6 +214,10 @@ export function useGameEngine() {
             socket.off("TIMER_SYNC");
             socket.off("TIMER_EXPIRED");
             socket.off("OPPONENT_PROGRESS");
+            socket.off("OPPONENT_TELEMETRY");
+            socket.off("SURVIVAL_CONTINUE");
+            socket.off("SURVIVAL_ENDED");
+            socket.off("SURVIVAL_QUEUED");
             socket.off("SESSION_END");
             socket.off("SESSION_ABORTED");
             socket.off("ERROR");
@@ -213,6 +246,31 @@ export function useGameEngine() {
             return;
         }
         getSocket().emit("SUBMIT_ANSWER", { sessionId, userId, challengeId, answer, roundNumber });
+    }, []);
+
+    const telemetryThrottleRef = useRef<{ lastSent: number }>({ lastSent: 0 });
+    const TELEMETRY_INTERVAL_MS = 2000;
+    const emitTypingTelemetry = useCallback((
+        charsTyped: number,
+        wpm: number,
+        codeLength: number,
+        templateLength?: number
+    ) => {
+        const now = Date.now();
+        if (now - telemetryThrottleRef.current.lastSent < TELEMETRY_INTERVAL_MS) return;
+        telemetryThrottleRef.current.lastSent = now;
+        const store = useGameStore.getState();
+        const sessionId = store.sessionId;
+        const userId = userIdRef.current ?? store.pendingUserId;
+        if (!sessionId || !userId) return;
+        getSocket().emit("TYPING_TELEMETRY", {
+            sessionId,
+            userId,
+            charsTyped,
+            wpm,
+            codeLength,
+            templateLength,
+        });
     }, []);
 
     const enterQueue = useCallback(async (payload: {
@@ -269,6 +327,28 @@ export function useGameEngine() {
         }
     }, [applyMatched, setQueuedUserId, setQueueError, joinSession]);
 
+    const confirmSurvivalContinue = useCallback(() => {
+        const store = useGameStore.getState();
+        if (!store.config) return;
+        const userId = userIdRef.current ?? store.pendingUserId;
+        if (!userId) return;
+        useGameStore.setState({ survivalPendingChoice: false });
+        getSocket().emit("SURVIVAL_REQUEUE", {
+            mode: "ARCADE",
+            playerFormat: store.config.playerFormat,
+            sessionType: store.config.sessionType,
+            category: store.config.category ?? null,
+            userId,
+        });
+        console.info("[WS] SURVIVAL_REQUEUE emitted (user confirmed)");
+    }, []);
+
+    const declineSurvival = useCallback(() => {
+        useGameStore.getState().resetSurvival();
+        useGameStore.getState().reset();
+        console.info("[WS] Survival declined — returning to lobby");
+    }, []);
+
     const state = useGameStore();
 
     return {
@@ -290,9 +370,14 @@ export function useGameEngine() {
         myLives: state.myLives,
         abortReason: state.abortReason,
         opponentProgress: state.opponentProgress,
+        opponentTelemetry: state.opponentTelemetry,
         hasSubmittedThisRound: state.hasSubmittedThisRound,
+        survivalPendingChoice: state.survivalPendingChoice,
         enterQueue,
+        emitTypingTelemetry,
         joinSession,
+        confirmSurvivalContinue,
+        declineSurvival,
         readyUp: useCallback(() => {
             const s = useGameStore.getState();
             const userId = userIdRef.current ?? s.pendingUserId;

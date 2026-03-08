@@ -7,7 +7,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MatchLobby }    from "@/components/game/lobby";
 import { GameArena }     from "@/components/game/arena";
 import { ResultsScreen } from "@/components/game/results-screen";
+import { ArenaSFXProvider } from "@/components/game/arena-sfx-context";
 import { useGameEngine } from "@/hooks/use-game-engine";
+import { useTelemetry } from "@/hooks/use-telemetry";
 import {
     Loader2, RefreshCw, Zap, Shield, Cpu,
     User, Users, Timer, Braces, ArrowLeft,
@@ -163,7 +165,29 @@ function useArcadeSounds() {
     }, [getCtx]);
     const error = useCallback(() => { beep(180, 0.15, "sawtooth", 0.08, 120); }, [beep]);
 
-    return { tick, select, advance, back, confirm, enterArena, error };
+    // Gamification SFX
+    const opponentProgress = useCallback(() => { beep(600, 0.04, "sine", 0.05); }, [beep]);
+    const streakUp = useCallback(() => {
+        beep(523.25, 0.08, "triangle", 0.08);  // C5
+        setTimeout(() => beep(659.25, 0.08, "triangle", 0.08), 80);   // E5
+        setTimeout(() => beep(783.99, 0.12, "triangle", 0.08), 160); // G5
+    }, [beep]);
+    const bonusTime = useCallback(() => {
+        const ctx = getCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(1000, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.12);
+    }, [getCtx]);
+    const survivalEnd = useCallback(() => {
+        beep(300, 0.4, "sawtooth", 0.06, 100);
+    }, [beep]);
+
+    return { tick, select, advance, back, confirm, enterArena, error, opponentProgress, streakUp, bonusTime, survivalEnd };
 }
 
 // ── Typewriter hook ───────────────────────────────────────────────────────
@@ -474,6 +498,8 @@ export default function ArcadeModePage() {
         enterQueue, joinSession, reset, reconnect,
     } = useGameEngine();
 
+    useTelemetry(sessionId ?? null);
+
     const sfx   = useArcadeSounds();
     const music = useBackgroundMusic();
 
@@ -540,11 +566,19 @@ export default function ArcadeModePage() {
     // ── In-session views ──────────────────────────────────────────────────
     if (isInSession) {
         return (
-            <div className="relative min-h-screen flex flex-col bg-background select-none">
-                <div className="flex-1 flex flex-col">
-                    {(sessionStatus === "LOBBY" || matchStatus === "QUEUED") && <MatchLobby />}
-                    {sessionStatus === "ACTIVE"    && <GameArena />}
-                    {sessionStatus === "COMPLETED" && <ResultsScreen />}
+            <ArenaSFXProvider
+                value={{
+                    opponentProgress: sfx.opponentProgress,
+                    streakUp: sfx.streakUp,
+                    bonusTime: sfx.bonusTime,
+                    survivalEnd: sfx.survivalEnd,
+                }}
+            >
+                <div className="relative min-h-screen flex flex-col bg-background select-none">
+                    <div className="flex-1 flex flex-col">
+                        {(sessionStatus === "LOBBY" || matchStatus === "QUEUED") && <MatchLobby />}
+                        {sessionStatus === "ACTIVE"    && <GameArena />}
+                        {sessionStatus === "COMPLETED" && <ResultsScreen />}
                     {matchStatus === "MATCHED" && sessionStatus === "IDLE" && (
                         <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
                             <Loader2 className="size-12 animate-spin text-primary" />
@@ -575,6 +609,7 @@ export default function ArcadeModePage() {
                     )}
                 </div>
             </div>
+            </ArenaSFXProvider>
         );
     }
 

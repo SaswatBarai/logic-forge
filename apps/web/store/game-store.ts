@@ -65,6 +65,15 @@ export interface OpponentProgressPayload {
     allSubmitted: boolean;
 }
 
+export interface OpponentTelemetryPayload {
+    fromUserId?: string;
+    wpm: number;
+    progress: number;
+    codeLength: number;
+    submitted: boolean;
+    verdict: string | null;
+}
+
 interface GameState {
     connected: boolean;
     socketStatus: "CONNECTING" | "OPEN" | "CLOSED" | "ERROR";
@@ -88,6 +97,18 @@ interface GameState {
     opponentProgress: OpponentProgressPayload | null;
     /** Whether the local player has submitted their answer for the current round */
     hasSubmittedThisRound: boolean;
+    /** Live opponent typing/solve telemetry (DUAL only) */
+    opponentTelemetry: OpponentTelemetryPayload | null;
+    /** Survival streak (arcade): current streak count */
+    survivalStreak: number;
+    /** Survival: total wins in this run (set on SURVIVAL_ENDED) */
+    survivalTotalWins: number;
+    /** Survival: bonus time ms awarded (e.g. +30s) */
+    survivalBonusTime: number;
+    /** Whether the session is a survival run (winner continues to next match) */
+    survivalActive: boolean;
+    /** True when the player won and needs to choose: continue streak or leave */
+    survivalPendingChoice: boolean;
 
     setConnected: (v: boolean) => void;
     setSocketStatus: (v: GameState["socketStatus"]) => void;
@@ -103,6 +124,14 @@ interface GameState {
     applySessionEnd: (payload: SessionEndPayload) => void;
     applySessionAborted: (payload: SessionAbortedPayload) => void;
     applyOpponentProgress: (payload: OpponentProgressPayload) => void;
+    applyOpponentTelemetry: (payload: OpponentTelemetryPayload) => void;
+    incrementStreak: () => void;
+    resetSurvival: () => void;
+    applySurvivalBonus: (bonusMs: number) => void;
+    /** Called on SURVIVAL_CONTINUE: sets active, streak, bonus time */
+    applySurvivalContinue: (payload: { streak: number; bonusTimeMs: number }) => void;
+    /** Called on SURVIVAL_ENDED: sets active false, final streak and total wins for results screen */
+    applySurvivalEnded: (payload: { finalStreak: number; totalWins: number }) => void;
     dismissResultOverlay: () => void;
     reset: () => void;
 }
@@ -176,6 +205,12 @@ const initialState = {
     roundHistory: [] as RoundHistoryEntry[],
     opponentProgress: null as OpponentProgressPayload | null,
     hasSubmittedThisRound: false,
+    opponentTelemetry: null as OpponentTelemetryPayload | null,
+    survivalStreak: 0,
+    survivalTotalWins: 0,
+    survivalBonusTime: 0,
+    survivalActive: false,
+    survivalPendingChoice: false,
 };
 
 export const useGameStore = create<GameState>()(
@@ -239,6 +274,7 @@ export const useGameStore = create<GameState>()(
             s.timeRemaining = payload.challenge.timeLimitMs;
             // Reset per-round dual state
             s.opponentProgress = null;
+            s.opponentTelemetry = null;
             s.hasSubmittedThisRound = false;
         }),
 
@@ -314,6 +350,32 @@ export const useGameStore = create<GameState>()(
 
         applyOpponentProgress: (payload) => set((s) => {
             s.opponentProgress = payload;
+        }),
+
+        applyOpponentTelemetry: (payload) => set((s) => {
+            s.opponentTelemetry = payload;
+        }),
+
+        incrementStreak: () => set((s) => { s.survivalStreak += 1; }),
+        resetSurvival: () => set((s) => {
+            s.survivalStreak = 0;
+            s.survivalTotalWins = 0;
+            s.survivalBonusTime = 0;
+            s.survivalActive = false;
+            s.survivalPendingChoice = false;
+        }),
+        applySurvivalBonus: (bonusMs) => set((s) => { s.survivalBonusTime = bonusMs; }),
+        applySurvivalContinue: (payload) => set((s) => {
+            s.survivalActive = true;
+            s.survivalStreak = payload.streak;
+            s.survivalTotalWins = payload.streak;
+            s.survivalBonusTime = payload.bonusTimeMs;
+            s.survivalPendingChoice = true;
+        }),
+        applySurvivalEnded: (payload) => set((s) => {
+            s.survivalActive = false;
+            s.survivalStreak = payload.finalStreak;
+            s.survivalTotalWins = payload.totalWins;
         }),
 
         dismissResultOverlay: () => set((s) => { s.showResultOverlay = false; }),
