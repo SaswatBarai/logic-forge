@@ -100,7 +100,37 @@ services:
       retries: 5
       start_period: 15s
 
-  # 6. Game API (HTTP + WebSocket)
+  # 6. Anti-Cheat Service
+  anti-cheat:
+    build:
+      context: .
+      dockerfile: apps/anti-cheat/Dockerfile
+    container_name: logicforge-anti-cheat
+    ports:
+      - "3003:3003"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/logicforge?schema=public
+      MONGO_URL: mongodb://admin:password@mongo:27017/logicforge_auth?authSource=admin
+      REDIS_URL: redis://redis:6379
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-secret-change-me}
+      PORT_ANTI_CHEAT: 3003
+      NODE_ENV: development
+      INTER_SERVICE_SECRET: ${INTER_SERVICE_SECRET:-dev-inter-service-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - logicforge-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # 7. Game API (HTTP + WebSocket)
   game-api:
     build:
       context: .
@@ -117,7 +147,7 @@ services:
       NODE_ENV: development
       QUESTION_ENGINE_URL: http://question-engine:3002
       CODE_RUNNER_URL: http://code-runner:3004
-      ANTI_CHEAT_URL: http://localhost:3003
+      ANTI_CHEAT_URL: http://anti-cheat:3003
       INTER_SERVICE_SECRET: ${INTER_SERVICE_SECRET:-dev-inter-service-secret}
     depends_on:
       postgres:
@@ -128,6 +158,8 @@ services:
         condition: service_healthy
       code-runner:
         condition: service_started
+      anti-cheat:
+        condition: service_healthy
     networks:
       - logicforge-net
     healthcheck:
