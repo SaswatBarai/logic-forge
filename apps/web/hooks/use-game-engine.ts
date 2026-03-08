@@ -20,7 +20,7 @@ const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:3
 
 let _socket: Socket | null = null;
 
-function getSocket(): Socket {
+export function getSocket(): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
             transports: ["websocket", "polling"],

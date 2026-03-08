@@ -9,6 +9,7 @@ import { GameArena }     from "@/components/game/arena";
 import { ResultsScreen } from "@/components/game/results-screen";
 import { ArenaSFXProvider } from "@/components/game/arena-sfx-context";
 import { useGameEngine } from "@/hooks/use-game-engine";
+import { useTelemetry } from "@/hooks/use-telemetry";
 import {
     Loader2, RefreshCw, Zap, Shield, Cpu,
     User, Users, Timer, Braces, ArrowLeft,
@@ -496,6 +497,8 @@ export default function ArcadeModePage() {
         sessionStatus, sessionId, queueError,
         enterQueue, joinSession, reset, reconnect,
     } = useGameEngine();
+
+    useTelemetry(sessionId ?? null);
 
     const sfx   = useArcadeSounds();
     const music = useBackgroundMusic();

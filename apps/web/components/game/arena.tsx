@@ -16,6 +16,7 @@ import { SurvivalTransition } from "./survival-transition";
 import { useArenaSFX } from "./arena-sfx-context";
 import { Activity, Play, CheckCircle2, XCircle, CopyX, Loader2, Zap, Eye } from "lucide-react";
 import { DualProgressHud } from "./dual-progress-hud";
+import { AntiCheatHUD } from "./anti-cheat-hud";
 
 const BLANK_CATEGORIES = new Set(["THE_MISSING_LINK", "SYNTAX_ERROR_DETECTION"]);
 const MCQ_CATEGORIES = new Set(["THE_BOTTLENECK_BREAKER"]);
@@ -208,7 +209,8 @@ export function GameArena() {
                         </div>
                     )}
 
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 items-center">
+                        <AntiCheatHUD sessionId={sessionId ?? null} />
                         <div className="bg-accent/10 px-4 py-2 border-2 border-foreground shadow-retro-sm flex flex-col items-center min-w-[70px]">
                             <span className="text-[9px] font-black uppercase tracking-widest text-accent">You</span>
                             <span className="font-black text-lg font-mono text-accent">{myScore}</span>

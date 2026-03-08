@@ -219,6 +219,45 @@ model RiskScore {
   session             GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
+// Append-only audit log for real-time telemetry (no update/delete).
+model TelemetryEvent {
+  id         String   @id @default(uuid())
+  sessionId  String
+  candidateId String  // userId
+  eventType  String
+  timestamp  DateTime @default(now())
+  payload    Json?
+
+  @@index([sessionId])
+  @@index([candidateId])
+  @@index([timestamp])
+}
+
+// Flags when risk thresholds are crossed (60 = MEDIUM, 80 = HIGH).
+model SessionFlag {
+  id          String   @id @default(uuid())
+  sessionId   String
+  candidateId String
+  riskScore   Int
+  flagLevel   String   // MEDIUM | HIGH
+  timestamp   DateTime @default(now())
+  events      Json?    // Triggering event types
+
+  @@index([sessionId])
+  @@index([candidateId])
+}
+
+// Current risk score per live session (for recruiter GET).
+model SessionRiskState {
+  id          String   @id @default(uuid())
+  sessionId   String   @unique
+  candidateId String
+  riskScore   Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@index([candidateId])
+}
+
 
 model MatchRecord {
   id          String        @id @default(uuid())
