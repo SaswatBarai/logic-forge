@@ -8,6 +8,8 @@ import {
     TOTAL_ROUNDS,
 } from "@logicforge/types";
 import type { SessionService } from "./session.service";
+import { commitMatchResult } from "./match-record.service.js";
+import { db } from "@logicforge/db";
 
 const QUESTION_ENGINE_URL = process.env.QUESTION_ENGINE_URL || "http://localhost:3002";
 const CODE_RUNNER_URL = process.env.CODE_RUNNER_URL || "http://localhost:3004";
@@ -35,6 +37,17 @@ export interface RoundState {
     isTerminated: boolean;
     terminationCause?: "LIVES_EXHAUSTED" | "COMPLETED";
     submittedUserIds: Set<string>;
+    /**
+     * Guards against the dual-player race condition where two concurrent
+     * handleSubmission calls both see allSubmitted=true and both call
+     * recordResult(), double-incrementing currentRound.
+     *
+     * Set to the round number the moment completion handling starts.
+     * Any later concurrent path that sees the same roundNumber short-circuits.
+     */
+    lastCompletedRound: number;
+    /** Wall-clock ms when the session started — used to compute real timeTakenMs */
+    sessionStartedAt: number;
 }
 
 interface ChallengeApiResponse {
@@ -175,9 +188,11 @@ export class RoundService {
             usedChallengeIds: [],
             isTerminated: false,
             submittedUserIds: new Set<string>(),
+            lastCompletedRound: 0,
+            sessionStartedAt: Date.now(),  // ← track real start time for speed bonus
         };
         roundStates.set(sessionId, state);
-        logger.info({ sessionId }, "Round state initialized");
+        logger.info({ sessionId }, "[ROUND_STATE] Initialized");
         return state;
     }
 
@@ -240,7 +255,9 @@ export class RoundService {
         const data = body.data ?? (body as any);
 
         state.categoryHistory.push(category);
-        state.usedChallengeIds.push(data.id);
+        if (!state.usedChallengeIds.includes(data.id)) {
+            state.usedChallengeIds.push(data.id);
+        }
 
         logger.info(
             { sessionId, round: state.currentRound, category, language, challengeId: data.id, totalUsedCount: state.usedChallengeIds.length },
@@ -346,9 +363,18 @@ export class RoundService {
         const passed = verdict === "CORRECT";
         const points = verdict === "CORRECT" ? 100 : verdict === "PARTIAL" ? 50 : 0;
 
-        logger.info({ sessionId, userId, challengeId, verdict, points, executionTimeMs }, "Answer evaluated");
+        logger.info({ sessionId, userId, challengeId, verdict, points }, "[ANSWER_RECEIVED] evaluated");
 
-        const state = this.recordResult(sessionId, config, passed);
+        // ─────────────────────────────────────────────────────────────────────
+        // IMPORTANT: recordResult() (which increments currentRound) is NOT
+        // called here.  It is called ONCE in handleSubmission / handleTimerExpiry
+        // AFTER the round-completion guard fires.  Calling it here caused a race
+        // condition in dual-player mode where both concurrent evaluateAnswer()
+        // calls saw isLastToSubmit=true and each incremented the round counter,
+        // jumping two rounds ahead (e.g. round 2 → round 4).
+        // ─────────────────────────────────────────────────────────────────────
+        const state = this.getState(sessionId);
+
         await this.sessionService.recordRoundScore(sessionId, userId, points);
         if (!passed && config.livesEnabled) {
             await this.sessionService.deductLife(sessionId, userId);
@@ -359,7 +385,7 @@ export class RoundService {
                 if (afterPlayer && afterPlayer.livesRemaining <= 0) {
                     state.isTerminated = true;
                     state.terminationCause = "LIVES_EXHAUSTED";
-                    logger.warn({ sessionId, userId, livesRemaining: afterPlayer.livesRemaining }, "Lives exhausted — terminating session");
+                    logger.warn({ sessionId, userId, livesRemaining: afterPlayer.livesRemaining }, "[LIFE_LOST] Lives exhausted — will terminate session");
                 }
             }
         }
@@ -378,6 +404,9 @@ export class RoundService {
             executionTimeMs,
             livesRemaining: config.livesEnabled ? player?.livesRemaining : undefined,
             roundState: {
+                // currentRound reflects the round that was just played (not yet incremented).
+                // The client uses applyRoundStart to navigate rounds, so this value
+                // is informational only.
                 currentRound: state.currentRound,
                 isTerminated: state.isTerminated,
                 terminationCause: state.terminationCause,
@@ -415,12 +444,12 @@ export class RoundService {
     async startRound(io: SocketServer, sessionId: string, roundNumber: number): Promise<void> {
         this.clearRoundTimer(sessionId);
         const payload = await this.prepareNextRound(sessionId);
-        
+
         logger.info(
             { sessionId, roundNumber, payloadRoundNumber: payload.roundNumber, challengeId: payload.challenge.id },
             "startRound: about to emit ROUND_START"
         );
-        
+
         io.to(sessionId).emit("ROUND_START", payload);
         await this.sessionService.updateSession(sessionId, { currentRound: roundNumber, status: "ACTIVE" });
         logger.info({ sessionId, roundNumber }, "ROUND_START emitted");
@@ -455,47 +484,83 @@ export class RoundService {
         const state = roundStates.get(sessionId);
         if (!state) return;
 
+        // ── Round-completion guard ──────────────────────────────────────────
+        // Prevents the timer path from running if handleSubmission already
+        // completed this round (both players answered before timer fired).
+        if (state.lastCompletedRound >= roundNumber) {
+            logger.info({ sessionId, roundNumber }, "[TIMER_EXPIRED] Round already completed — timer expiry skipped");
+            return;
+        }
+
         const pending = session.players.filter((uid) => !state.submittedUserIds.has(uid));
         if (pending.length === 0) {
-            logger.info({ sessionId, roundNumber }, "Timer expired but all players already submitted");
+            logger.info({ sessionId, roundNumber }, "[TIMER_EXPIRED] All players already submitted — no auto-submit needed");
             return;
         }
 
         io.to(sessionId).emit("TIMER_EXPIRED", { roundNumber });
+        logger.info({ sessionId, roundNumber, pendingCount: pending.length }, "[TIMER_EXPIRED] Auto-submitting pending players");
 
         const challengeId =
             state.usedChallengeIds[roundNumber - 1] ??
             state.usedChallengeIds[state.usedChallengeIds.length - 1];
 
+        // Auto-submit all pending players
         for (const userId of pending) {
             try {
                 state.submittedUserIds.add(userId);
                 const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer: "" });
-                io.to(sessionId).emit("ROUND_RESULT", result);
-                logger.info({ sessionId, userId, roundNumber }, "Auto-submitted (timer expired)");
-
-                const isLastPending = userId === pending[pending.length - 1];
-                if (isLastPending) {
-                    if (result.roundState.isTerminated) {
-                        io.to(sessionId).emit("SESSION_END", {
-                            cause: result.roundState.terminationCause ?? "COMPLETED",
-                            finalState: { players: result.players },
-                        });
-                        this.cleanup(sessionId);
-                    } else {
-                        setTimeout(async () => {
-                            try {
-                                const liveState = this.getState(sessionId);
-                                await this.startRound(io, sessionId, liveState.currentRound);
-                            } catch (err) {
-                                logger.error({ err, sessionId }, "Error starting next round after timer expiry");
-                            }
-                        }, 3500);
-                    }
-                }
+                await this.emitToPlayer(io, userId, "ROUND_RESULT", result);
+                logger.info({ sessionId, userId, roundNumber }, "[ANSWER_RECEIVED] Auto-submitted (timer expired)");
             } catch (err) {
                 logger.error({ err, sessionId, userId }, "Error auto-submitting on timer expiry");
             }
+        }
+
+        // ── Round completion (guarded — fires exactly once) ─────────────────
+        if (state.lastCompletedRound >= roundNumber) {
+            logger.warn({ sessionId, roundNumber }, "[TIMER_EXPIRED] Completion guard hit after auto-submit loop");
+            return;
+        }
+        state.lastCompletedRound = roundNumber;
+
+        const livesTerminated = state.isTerminated && state.terminationCause === "LIVES_EXHAUSTED";
+        if (livesTerminated) {
+            const finalSession = await this.sessionService.getSession(sessionId);
+            const finalSerialized = finalSession ? await this.sessionService.serialize(finalSession) : { players: [] };
+            io.to(sessionId).emit("SESSION_END", {
+                cause: "LIVES_EXHAUSTED",
+                finalState: { players: finalSerialized.players },
+            });
+            this.persistMatchResults(io, sessionId, finalSerialized.players, "LIVES_EXHAUSTED")
+                .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
+            this.cleanup(sessionId);
+            return;
+        }
+
+        const advancedState = this.recordResult(sessionId, session.config, false);
+        logger.info({ sessionId, roundNumber, nextRound: advancedState.currentRound, isTerminated: advancedState.isTerminated }, "[ROUND_COMPLETE] Timer expiry — round advanced");
+
+        if (advancedState.isTerminated) {
+            const finalSession = await this.sessionService.getSession(sessionId);
+            const finalSerialized = finalSession ? await this.sessionService.serialize(finalSession) : { players: [] };
+            io.to(sessionId).emit("SESSION_END", {
+                cause: advancedState.terminationCause ?? "COMPLETED",
+                finalState: { players: finalSerialized.players },
+            });
+            this.persistMatchResults(io, sessionId, finalSerialized.players, advancedState.terminationCause ?? "COMPLETED")
+                .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
+            this.cleanup(sessionId);
+        } else {
+            logger.info({ sessionId, nextRound: advancedState.currentRound }, "[NEXT_ROUND] Scheduling after timer expiry");
+            setTimeout(async () => {
+                try {
+                    const liveState = this.getState(sessionId);
+                    await this.startRound(io, sessionId, liveState.currentRound);
+                } catch (err) {
+                    logger.error({ err, sessionId }, "Error starting next round after timer expiry");
+                }
+            }, 3500);
         }
     }
 
@@ -508,8 +573,6 @@ export class RoundService {
         }
     }
 
-    // ✅ NEW: LIVE mode advance timer — fires if second player never submits
-    // Zero effect on TIMER mode (the else-if guard in handleSubmission blocks it)
     private scheduleLiveAdvance(
         io: SocketServer,
         sessionId: string,
@@ -528,6 +591,12 @@ export class RoundService {
             const state = roundStates.get(sessionId);
             if (!state) return;
 
+            // ── Round-completion guard ─────────────────────────────────────
+            if (state.lastCompletedRound >= roundNumber) {
+                logger.info({ sessionId, roundNumber }, "[LIVE_ADVANCE] Round already completed — skipping");
+                return;
+            }
+
             const session = await this.sessionService.getSession(sessionId);
             if (!session) return;
 
@@ -538,7 +607,7 @@ export class RoundService {
 
             logger.info(
                 { sessionId, roundNumber, pending },
-                "LIVE advance timer fired — auto-submitting pending players"
+                "[LIVE_ADVANCE] Auto-submitting pending players after 15s"
             );
 
             const challengeId =
@@ -554,30 +623,55 @@ export class RoundService {
                         challengeId,
                         answer: "",
                     });
-                    io.to(sessionId).emit("ROUND_RESULT", result);
-
-                    const isLast = userId === pending[pending.length - 1];
-                    if (isLast) {
-                        if (result.roundState.isTerminated) {
-                            io.to(sessionId).emit("SESSION_END", {
-                                cause: result.roundState.terminationCause ?? "COMPLETED",
-                                finalState: { players: result.players },
-                            });
-                            this.cleanup(sessionId);
-                        } else {
-                            setTimeout(async () => {
-                                try {
-                                    const liveState = this.getState(sessionId);
-                                    await this.startRound(io, sessionId, liveState.currentRound);
-                                } catch (err) {
-                                    logger.error({ err, sessionId }, "Error starting next round after live advance");
-                                }
-                            }, 3500);
-                        }
-                    }
+                    await this.emitToPlayer(io, userId, "ROUND_RESULT", result);
+                    logger.info({ sessionId, userId, roundNumber }, "[ANSWER_RECEIVED] Auto-submitted (live advance)");
                 } catch (err) {
                     logger.error({ err, sessionId, userId }, "Error auto-submitting in live advance");
                 }
+            }
+
+            // ── Round completion (guarded) ─────────────────────────────────
+            if (state.lastCompletedRound >= roundNumber) {
+                logger.warn({ sessionId, roundNumber }, "[LIVE_ADVANCE] Completion guard hit after auto-submit");
+                return;
+            }
+            state.lastCompletedRound = roundNumber;
+
+            const livesTerminated = state.isTerminated && state.terminationCause === "LIVES_EXHAUSTED";
+            if (livesTerminated) {
+                const finalSession = await this.sessionService.getSession(sessionId);
+                const finalSerialized = finalSession ? await this.sessionService.serialize(finalSession) : { players: [] };
+                io.to(sessionId).emit("SESSION_END", {
+                    cause: "LIVES_EXHAUSTED",
+                    finalState: { players: finalSerialized.players },
+                });
+                this.cleanup(sessionId);
+                return;
+            }
+
+            const advancedState = this.recordResult(sessionId, session.config, false);
+            logger.info({ sessionId, roundNumber, nextRound: advancedState.currentRound, isTerminated: advancedState.isTerminated }, "[ROUND_COMPLETE] Live advance — round advanced");
+
+            if (advancedState.isTerminated) {
+                const finalSession = await this.sessionService.getSession(sessionId);
+                const finalSerialized = finalSession ? await this.sessionService.serialize(finalSession) : { players: [] };
+                io.to(sessionId).emit("SESSION_END", {
+                    cause: advancedState.terminationCause ?? "COMPLETED",
+                    finalState: { players: finalSerialized.players },
+                });
+                this.persistMatchResults(io, sessionId, finalSerialized.players, advancedState.terminationCause ?? "COMPLETED")
+                    .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
+                this.cleanup(sessionId);
+            } else {
+                logger.info({ sessionId, nextRound: advancedState.currentRound }, "[NEXT_ROUND] Scheduling after live advance");
+                setTimeout(async () => {
+                    try {
+                        const liveState = this.getState(sessionId);
+                        await this.startRound(io, sessionId, liveState.currentRound);
+                    } catch (err) {
+                        logger.error({ err, sessionId }, "Error starting next round after live advance");
+                    }
+                }, 3500);
             }
         }, delayMs);
 
@@ -593,6 +687,7 @@ export class RoundService {
     ): Promise<void> {
         const state = this.getState(sessionId);
 
+        // ── Duplicate-submit guard ────────────────────────────────────────────
         if (state.submittedUserIds.has(userId)) {
             logger.warn({ sessionId, userId, roundNumber }, "Duplicate SUBMIT_ANSWER ignored");
             return;
@@ -605,11 +700,12 @@ export class RoundService {
 
         logger.info(
             { sessionId, userId, roundNumber, challengeId, submittedCount: state.submittedUserIds.size },
-            "handleSubmission: evaluating answer"
+            "[ANSWER_RECEIVED] Processing submission"
         );
 
+        // Evaluate answer — does NOT touch round state (no recordResult)
         const result = await this.evaluateAnswer({ sessionId, userId, challengeId, answer });
-        io.to(sessionId).emit("ROUND_RESULT", result);
+        await this.emitToPlayer(io, userId, "ROUND_RESULT", result);
 
         const session = await this.sessionService.getSession(sessionId);
         const totalPlayers = session?.players.length ?? 1;
@@ -617,42 +713,99 @@ export class RoundService {
 
         logger.info(
             { sessionId, userId, roundNumber, allSubmitted, submittedCount: state.submittedUserIds.size, totalPlayers },
-            "handleSubmission: checking if all submitted"
+            "[ANSWER_RECEIVED] Submission processed"
         );
 
+        // ── OPPONENT_PROGRESS: notify all other players immediately ──────────
+        if (totalPlayers > 1) {
+            const opponents = (session?.players ?? []).filter((uid) => uid !== userId);
+            for (const opponentId of opponents) {
+                await this.emitToPlayer(io, opponentId, "OPPONENT_PROGRESS", {
+                    fromUserId: userId,
+                    answered: true,
+                    round: result.roundState.currentRound,
+                    livesRemaining: result.livesRemaining,
+                    allSubmitted,
+                });
+            }
+            logger.info(
+                { sessionId, userId, roundNumber, allSubmitted },
+                "OPPONENT_PROGRESS emitted"
+            );
+        }
+
         if (allSubmitted) {
-            // ✅ Cancel live advance timer — everyone submitted normally
-            const existing = liveAdvanceTimers.get(sessionId);
-            if (existing) {
-                clearTimeout(existing);
+            // ── Round-completion guard ────────────────────────────────────────
+            // This is the critical fix for the double-increment race condition.
+            //
+            // In dual-player mode both SUBMIT_ANSWER handlers run concurrently.
+            // Both do submittedUserIds.add() synchronously BEFORE any await,
+            // so when they both hit `await evaluateAnswer()` they both see
+            // submittedUserIds.size >= totalPlayers.  Without this guard,
+            // both paths would proceed here and call recordResult() twice,
+            // skipping a round (e.g. round 2 jumps to round 4).
+            //
+            // Solution: mark the round completed atomically here.  Only the
+            // first call through proceeds; the second returns early.
+            if (state.lastCompletedRound >= roundNumber) {
+                logger.warn(
+                    { sessionId, roundNumber, lastCompletedRound: state.lastCompletedRound },
+                    "[ROUND_COMPLETE] Completion guard prevented duplicate — skipping"
+                );
+                return;
+            }
+            state.lastCompletedRound = roundNumber;
+
+            // Cancel all outstanding timers for this round
+            const liveTimer = liveAdvanceTimers.get(sessionId);
+            if (liveTimer) {
+                clearTimeout(liveTimer);
                 liveAdvanceTimers.delete(sessionId);
             }
-
             this.clearRoundTimer(sessionId);
 
-            logger.info(
-                { sessionId, roundNumber, isTerminated: result.roundState.isTerminated },
-                "handleSubmission: all submitted, checking termination"
-            );
-
-            if (result.roundState.isTerminated) {
+            // ── Termination path 1: lives exhausted (detected in evaluateAnswer) ──
+            if (result.roundState.isTerminated && result.roundState.terminationCause === "LIVES_EXHAUSTED") {
+                logger.info({ sessionId, roundNumber }, "[SESSION_END] Lives exhausted");
                 io.to(sessionId).emit("SESSION_END", {
-                    cause: result.roundState.terminationCause ?? "COMPLETED",
+                    cause: "LIVES_EXHAUSTED",
                     finalState: { players: result.players },
                 });
+                this.persistMatchResults(io, sessionId, result.players, "LIVES_EXHAUSTED")
+                    .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
                 this.cleanup(sessionId);
-                logger.info({ sessionId }, "Session ended");
+                return;
+            }
+
+            // ── Advance round state (called exactly ONCE per round) ──────────
+            const advancedState = this.recordResult(sessionId, session!.config, result.passed);
+            logger.info(
+                { sessionId, completedRound: roundNumber, nextRound: advancedState.currentRound, isTerminated: advancedState.isTerminated },
+                "[ROUND_COMPLETE] Round advanced"
+            );
+
+            // ── Termination path 2: all rounds completed ─────────────────────
+            if (advancedState.isTerminated) {
+                logger.info({ sessionId }, "[SESSION_END] All rounds completed");
+                io.to(sessionId).emit("SESSION_END", {
+                    cause: advancedState.terminationCause ?? "COMPLETED",
+                    finalState: { players: result.players },
+                });
+                this.persistMatchResults(io, sessionId, result.players, advancedState.terminationCause ?? "COMPLETED")
+                    .catch(err => logger.error({ err, sessionId }, "persistMatchResults failed"));
+                this.cleanup(sessionId);
             } else {
+                // ── Next round ───────────────────────────────────────────────
                 logger.info(
-                    { sessionId, roundNumber, nextRound: result.roundState.currentRound },
-                    "handleSubmission: scheduling next round"
+                    { sessionId, nextRound: advancedState.currentRound },
+                    "[NEXT_ROUND] Scheduling start in 3.5s"
                 );
                 setTimeout(async () => {
                     try {
                         const liveState = this.getState(sessionId);
                         logger.info(
                             { sessionId, nextRound: liveState.currentRound },
-                            "handleSubmission: calling startRound for next round"
+                            "[ROUND_START] Starting next round"
                         );
                         await this.startRound(io, sessionId, liveState.currentRound);
                     } catch (err) {
@@ -661,10 +814,81 @@ export class RoundService {
                 }, 3500);
             }
         } else if (totalPlayers > 1 && !roundTimers.has(sessionId)) {
-            // ✅ LIVE mode only: first player submitted, arm the advance timer
-            // Guard: totalPlayers > 1 (not single player) AND no TIMER mode timer running
+            // LIVE mode only: first player submitted — arm the 15s advance timer
             this.scheduleLiveAdvance(io, sessionId, roundNumber);
             logger.info({ sessionId, roundNumber }, "LIVE advance timer scheduled (15s)");
+        }
+    }
+
+    private async emitToPlayer(
+        io: SocketServer,
+        userId: string,
+        event: string,
+        data: unknown
+    ): Promise<void> {
+        const socketId = await this.sessionService.getSocketId(userId);
+        if (socketId) {
+            io.to(socketId).emit(event, data);
+        }
+    }
+
+    private async persistMatchResults(
+        io: SocketServer,
+        sessionId: string,
+        players: Array<{ userId: string; score: number; roundScores: number[] }>,
+        cause: string
+    ): Promise<void> {
+        const session = await this.sessionService.getSession(sessionId);
+        if (!session) return;
+
+        const isDual = session.config.playerFormat === "DUAL";
+        const totalRounds = session.config.totalRounds;
+
+        // ── Bug fix: use real elapsed time for speed-bonus calculation ──────────
+        const roundState = roundStates.get(sessionId);
+        const timeTakenMs = roundState
+            ? Date.now() - roundState.sessionStartedAt
+            : totalRounds * 30_000; // fallback if state was already cleaned up
+
+        // ── Bug fix: fetch real globalScore values so ELO isn't always ±16 ─────
+        // (previously both sides were hardcoded to 1000, making eloExpected always
+        //  return 0.5 and the shift always land at exactly K*(actual−0.5))
+        let lpMap: Record<string, number> = {};
+        if (isDual) {
+            try {
+                const userIds = players.map(p => p.userId);
+                const scores = await db.userScore.findMany({ where: { userId: { in: userIds } } });
+                lpMap = Object.fromEntries(scores.map(s => [s.userId, s.globalScore]));
+            } catch (err) {
+                logger.warn({ err, sessionId }, "Could not fetch globalScores for ELO — falling back to 1000");
+            }
+        }
+
+        for (const player of players) {
+            try {
+                const correctAnswers = player.roundScores.filter(s => s > 0).length;
+                const accuracy = correctAnswers / Math.max(totalRounds, 1);
+
+                const mode = isDual ? "ARCADE_DUAL" as const : "ARCADE_SINGLE" as const;
+
+                const opponentId = players.find(p => p.userId !== player.userId)?.userId ?? "";
+                const stats = isDual
+                    ? {
+                        myScore: player.score,
+                        opponentScore: players.find(p => p.userId !== player.userId)?.score ?? 0,
+                        opponentId,
+                        correctAnswers,
+                        totalRounds,
+                        myGlobalLp: lpMap[player.userId] ?? 1000,
+                        opponentGlobalLp: lpMap[opponentId] ?? 1000,
+                    }
+                    : { correctAnswers, totalRounds, timeTakenMs, accuracy };
+
+                const result = await commitMatchResult({ userId: player.userId, mode, stats });
+                logger.info({ sessionId, userId: player.userId, ...result }, "Match committed to DB");
+            } catch (err) {
+                logger.error({ err, sessionId, userId: player.userId }, "Failed to persist match result");
+            }
         }
     }
 

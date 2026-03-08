@@ -10,34 +10,42 @@ const VERDICT_CONFIG: Record<string, {
     bg: string;
     label: string;
 }> = {
-    CORRECT:       { icon: CheckCircle2, color: "text-accent",      bg: "bg-accent",      label: "Correct!"      },
-    INCORRECT:     { icon: XCircle,      color: "text-destructive",  bg: "bg-destructive", label: "Incorrect"     },
-    TIMEOUT:       { icon: Clock,        color: "text-primary",      bg: "bg-primary",     label: "Time's Up"     },
-    COMPILE_ERROR: { icon: XCircle,      color: "text-destructive",  bg: "bg-destructive", label: "Compile Error" },
-    RUNTIME_ERROR: { icon: XCircle,      color: "text-destructive",  bg: "bg-destructive", label: "Runtime Error" },
-    PARTIAL:       { icon: Zap,          color: "text-primary",      bg: "bg-primary",     label: "Partial Credit"},
+    CORRECT: { icon: CheckCircle2, color: "text-accent", bg: "bg-accent", label: "Correct!" },
+    INCORRECT: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Incorrect" },
+    TIMEOUT: { icon: Clock, color: "text-primary", bg: "bg-primary", label: "Time's Up" },
+    COMPILE_ERROR: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Compile Error" },
+    RUNTIME_ERROR: { icon: XCircle, color: "text-destructive", bg: "bg-destructive", label: "Runtime Error" },
+    PARTIAL: { icon: Zap, color: "text-primary", bg: "bg-primary", label: "Partial Credit" },
 };
 
 export function RoundResultOverlay() {
     // ✅ Correct store field names
-    const lastResult          = useGameStore((s) => s.lastResult);
-    const showResultOverlay   = useGameStore((s) => s.showResultOverlay);
+    const lastResult = useGameStore((s) => s.lastResult);
+    const showResultOverlay = useGameStore((s) => s.showResultOverlay);
     const dismissResultOverlay = useGameStore((s) => s.dismissResultOverlay);
-    const sessionStatus       = useGameStore((s) => s.sessionStatus);
-    const myLives             = useGameStore((s) => s.myLives);
-    const config              = useGameStore((s) => s.config);
-    const currentRound        = useGameStore((s) => s.currentRound);
+    const sessionStatus = useGameStore((s) => s.sessionStatus);
+    const myLives = useGameStore((s) => s.myLives);
+    const config = useGameStore((s) => s.config);
+    const currentRound = useGameStore((s) => s.currentRound);
 
-    const isLiveMode  = config?.sessionType === "LIVE";
+    const isLiveMode = config?.sessionType === "LIVE";
+    const isDualTimer = config?.playerFormat === "DUAL" && config?.sessionType === "TIMER";
     const livesEnabled = config?.livesEnabled ?? false;
 
     const [countdown, setCountdown] = useState(3);
+
+    // In Timer Mode dual sessions, the overlay stays visible until the next
+    // ROUND_START fires (which calls applyRoundStart → showResultOverlay=false).
+    // In every other mode, auto-dismiss after 3 s.
+    const autoDisable = isDualTimer;
 
     // Visible when overlay flag is set AND session is still active (not completed)
     const visible = showResultOverlay && !!lastResult && sessionStatus !== "COMPLETED";
 
     useEffect(() => {
         if (!visible) return;
+        if (autoDisable) return; // Timer-dual: hold until next ROUND_START
+
         setCountdown(3);
 
         const interval = setInterval(() => {
@@ -52,7 +60,11 @@ export function RoundResultOverlay() {
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [visible, dismissResultOverlay]);
+    }, [visible, autoDisable, dismissResultOverlay]);
+
+    // For Timer-dual mode: also read opponent progress to show opponent status
+    const opponentProgress = useGameStore((s) => s.opponentProgress);
+    const opponentAnswered = isDualTimer ? (opponentProgress?.answered ?? false) : false;
 
     if (!visible || !lastResult) return null;
 
@@ -102,18 +114,46 @@ export function RoundResultOverlay() {
                     </div>
                 )}
 
-                {/* Countdown */}
-                <div className="text-sm font-mono font-bold text-foreground/85">
-                    Next round in <span className="text-foreground font-black">{countdown}</span>…
-                </div>
+                {/* Countdown / waiting-for-opponent */}
+                {isDualTimer ? (
+                    // Timer Mode dual: show opponent status while waiting
+                    <div className="flex flex-col items-center gap-1">
+                        <div className="text-sm font-mono font-bold text-foreground/85">
+                            {opponentAnswered ? (
+                                <span className="text-accent font-black">Opponent finished! Starting next round…</span>
+                            ) : (
+                                <span className="animate-pulse">Waiting for opponent<span className="">…</span></span>
+                            )}
+                        </div>
+                        {/* Pulsing dot indicator */}
+                        {!opponentAnswered && (
+                            <div className="flex gap-1 mt-1">
+                                {[0, 1, 2].map((i) => (
+                                    <span
+                                        key={i}
+                                        className="size-1.5 rounded-full bg-primary animate-bounce"
+                                        style={{ animationDelay: `${i * 0.15}s` }}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    // Live Mode / Solo: countdown
+                    <div className="text-sm font-mono font-bold text-foreground/85">
+                        Next round in <span className="text-foreground font-black">{countdown}</span>…
+                    </div>
+                )}
 
-                {/* Countdown bar */}
-                <div className="w-full h-1.5 border border-foreground overflow-hidden">
-                    <div
-                        className="h-full bg-primary transition-all duration-1000 ease-linear"
-                        style={{ width: `${(countdown / 3) * 100}%` }}
-                    />
-                </div>
+                {/* Countdown bar — only shown in auto-dismiss modes */}
+                {!isDualTimer && (
+                    <div className="w-full h-1.5 border border-foreground overflow-hidden">
+                        <div
+                            className="h-full bg-primary transition-all duration-1000 ease-linear"
+                            style={{ width: `${(countdown / 3) * 100}%` }}
+                        />
+                    </div>
+                )}
             </div>
         </div>
     );
