@@ -1,0 +1,30 @@
+/* Story Mode (IRONCLAD CHRONICLES) — matches Logic Forge landing/app theme
+   Uses same cream/gold/navy palette; fantasy serif only for titles. */
+
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap");
+
+.story-mode {
+  /* Map to app design tokens so Story Mode matches landing page */
+  --story-stone: var(--card);
+  --story-stone-hsl: hsl(var(--card));
+  --story-gold: var(--primary);
+  --story-gold-hsl: hsl(var(--primary));
+  --story-emerald: var(--accent);
+  --story-emerald-hsl: hsl(var(--accent));
+  --story-crimson: var(--destructive);
+  --story-crimson-hsl: hsl(var(--destructive));
+  --story-parchment: var(--foreground);
+  --story-parchment-hsl: hsl(var(--foreground));
+  --story-glow-gold: 0 0 20px hsl(var(--primary) / 0.25);
+  --story-glow-emerald: 0 0 20px hsl(var(--accent) / 0.2);
+  --story-glow-crimson: 0 0 20px hsl(var(--destructive) / 0.2);
+}
+
+/* Fantasy serif only for chapter/zone/act titles; body uses app font (Spline Sans) */
+.story-mode .font-story-title {
+  font-family: "Cinzel", serif;
+}
+
+.story-mode .font-story-body {
+  font-family: var(--font-sans);
+}
