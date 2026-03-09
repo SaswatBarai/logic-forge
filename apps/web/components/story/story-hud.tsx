@@ -1,8 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Sword, Skull, AlertTriangle, Zap, Flame } from "lucide-react";
+import { Sword, Skull, AlertTriangle, Zap, Flame, Volume2, VolumeX } from "lucide-react";
 import { useStoryStore, RANK_THRESHOLDS } from "@/store/story-store";
+import { useNarration } from "@/contexts/narration-context";
 
 const ZONE_LABELS: Record<string, string> = {
   ARCHIVE_CITADEL: "The Archive Citadel",
@@ -39,6 +40,7 @@ export function StoryHud() {
     bossHealth,
     bossPhase,
   } = useStoryStore();
+  const { enabled: voiceEnabled, setEnabled: setVoiceEnabled, isSpeaking } = useNarration();
   const xpProgress = getXpProgress(xp);
 
   return (
@@ -107,8 +109,25 @@ export function StoryHud() {
         )}
       </div>
 
-      {/* Right: Scars, Debts, Energy */}
+      {/* Right: Voice, Scars, Debts, Energy */}
       <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={() => setVoiceEnabled(!voiceEnabled)}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded border transition-colors ${
+            voiceEnabled
+              ? "border-primary/50 text-primary hover:bg-primary/10"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+          title={voiceEnabled ? "Voice narration on (click to turn off)" : "Voice narration off (click to turn on)"}
+        >
+          {voiceEnabled ? (
+            <Volume2 className={`size-3.5 shrink-0 ${isSpeaking ? "animate-pulse" : ""}`} />
+          ) : (
+            <VolumeX className="size-3.5 shrink-0" />
+          )}
+          <span className="text-[9px] font-mono uppercase hidden sm:inline">Voice</span>
+        </button>
         {zone === "FORGE_VILLAGE" && energyMeter !== null && (
           <div className="flex items-center gap-2">
             <span className="text-[9px] font-mono uppercase text-muted-foreground">Energy</span>

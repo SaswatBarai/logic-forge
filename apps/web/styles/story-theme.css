@@ -1,30 +1,84 @@
-/* Story Mode (IRONCLAD CHRONICLES) — matches Logic Forge landing/app theme
-   Uses same cream/gold/navy palette; fantasy serif only for titles. */
+/* Story Mode (IRONCLAD CHRONICLES) — dark amber/gold RPG dialogue theme
+   DialogueUI-style: near-black amber bg, gold accent, warm cream text. */
 
 @import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap");
 
 .story-mode {
-  /* Map to app design tokens so Story Mode matches landing page */
-  --story-stone: var(--card);
-  --story-stone-hsl: hsl(var(--card));
-  --story-gold: var(--primary);
-  --story-gold-hsl: hsl(var(--primary));
-  --story-emerald: var(--accent);
-  --story-emerald-hsl: hsl(var(--accent));
-  --story-crimson: var(--destructive);
-  --story-crimson-hsl: hsl(var(--destructive));
-  --story-parchment: var(--foreground);
-  --story-parchment-hsl: hsl(var(--foreground));
-  --story-glow-gold: 0 0 20px hsl(var(--primary) / 0.25);
-  --story-glow-emerald: 0 0 20px hsl(var(--accent) / 0.2);
-  --story-glow-crimson: 0 0 20px hsl(var(--destructive) / 0.2);
+  /* Dark amber/gold palette for story / dialogue */
+  --story-bg: 30 60% 4%;
+  --story-card: 30 50% 6%;
+  --story-amber: 38 100% 55%;
+  --story-amber-border: 38 70% 30%;
+  --story-foreground: 40 50% 88%;
+  --story-muted: 38 40% 55%;
+  --story-border: 30 70% 14%;
+  --story-destructive: 0 72% 55%;
+  /* Legacy tokens mapped to story palette */
+  --story-stone: hsl(var(--story-card));
+  --story-stone-hsl: var(--story-card);
+  --story-gold: hsl(var(--story-amber));
+  --story-gold-hsl: var(--story-amber);
+  --story-emerald: hsl(var(--story-amber));
+  --story-emerald-hsl: var(--story-amber);
+  --story-crimson: hsl(var(--story-destructive));
+  --story-crimson-hsl: var(--story-destructive);
+  --story-parchment: hsl(var(--story-foreground));
+  --story-parchment-hsl: var(--story-foreground);
+  --story-glow-gold: 0 0 24px hsl(var(--story-amber) / 0.35);
+  --story-glow-emerald: 0 0 24px hsl(var(--story-amber) / 0.3);
+  --story-glow-crimson: 0 0 20px hsl(var(--story-destructive) / 0.25);
+  --story-glow-purple: 0 0 28px hsl(var(--story-amber) / 0.4);
 }
 
-/* Fantasy serif only for chapter/zone/act titles; body uses app font (Spline Sans) */
+/* Override design tokens inside story mode for amber/gold theme */
+.story-mode {
+  --background: var(--story-bg);
+  --foreground: var(--story-foreground);
+  --card: var(--story-card);
+  --primary: var(--story-amber);
+  --primary-foreground: 30 60% 8%;
+  --accent: var(--story-amber);
+  --muted: var(--story-card);
+  --muted-foreground: var(--story-muted);
+  --border: var(--story-border);
+  --destructive: var(--story-destructive);
+  /* Ensure the story root and full-height containers show amber background */
+  background-color: hsl(var(--story-bg));
+  color: hsl(var(--story-foreground));
+}
+
+/* Cinzel for titles; Courier New for body (DialogueUI-style monospace) */
 .story-mode .font-story-title {
   font-family: "Cinzel", serif;
 }
 
 .story-mode .font-story-body {
-  font-family: var(--font-sans);
+  font-family: "Courier New", monospace;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
 }
+
+/* Slightly larger labels so they’re readable */
+.story-mode .story-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+
+/* Dialogue cursor and continue prompt animations */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes bounceY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.story-mode .animate-blink { animation: blink 0.5s ease-in-out infinite; }
+.story-mode .animate-bounce-y { animation: bounceY 0.8s ease-in-out infinite; }
+
+@keyframes shimmer {
+  from { opacity: 0; transform: translateX(-100%); }
+  to { opacity: 1; transform: translateX(100%); }
+}
+.story-mode .animate-shimmer { animation: shimmer 0.8s ease; }

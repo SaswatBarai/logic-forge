@@ -19,10 +19,10 @@ export async function GET() {
     since.setDate(since.getDate() - 365);
 
     const rows = await db.$queryRaw<{ date: Date; count: number }[]>`
-      SELECT DATE("createdAt") as date, COUNT(*)::int as count
+      SELECT ("createdAt"::date) AS date, COUNT(*)::int AS count
       FROM "MatchRecord"
       WHERE "userId" = ${userId} AND "createdAt" >= ${since}
-      GROUP BY DATE("createdAt")
+      GROUP BY ("createdAt"::date)
       ORDER BY date ASC
     `;
 

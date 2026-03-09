@@ -6,8 +6,10 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
+COPY packages/auth/package.json ./packages/auth/
 COPY packages/db/package.json ./packages/db/
 COPY packages/config/package.json ./packages/config/
+COPY packages/eslint-config/package.json ./packages/eslint-config/
 COPY packages/logger/package.json ./packages/logger/
 COPY packages/types/package.json ./packages/types/
 COPY packages/tsconfig/package.json ./packages/tsconfig/

@@ -39,7 +39,8 @@ COPY packages/tsconfig/ ./packages/tsconfig/
 # Copy question-engine source + challenge data
 COPY apps/question-engine/ ./apps/question-engine/
 
-# Generate Prisma client
+# Prisma generate needs DATABASE_URL in the schema (env("DATABASE_URL")); use a dummy at build time.
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 RUN pnpm --filter @logicforge/db run db:generate
 
 # ── Stage 4: Runtime (use tsx to avoid ESM directory-import issues) ───

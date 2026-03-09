@@ -13,7 +13,8 @@ type SfxName =
   | "timerUrgent"
   | "zoneComplete"
   | "sceneTransition"
-  | "streakBroken";
+  | "streakBroken"
+  | "textTick";
 
 interface StorySFXContextValue {
   play: (name: SfxName) => void;
@@ -84,6 +85,9 @@ function playSound(ctx: AudioContext, name: SfxName) {
     case "streakBroken":
       tone(ctx, 400, "sawtooth", 0.15, 0.1);
       setTimeout(() => tone(ctx, 250, "sawtooth", 0.25, 0.08), 100);
+      break;
+    case "textTick":
+      tone(ctx, 1100, "sine", 0.012, 0.03);
       break;
   }
 }

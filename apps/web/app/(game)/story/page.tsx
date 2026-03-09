@@ -16,6 +16,7 @@ import { RankUpOverlay } from "@/components/story/rank-up-overlay";
 import { BossGateTransition } from "@/components/story/boss-gate-transition";
 import { ZoneCompleteScreen } from "@/components/story/zone-complete-screen";
 import { StoryStatusPanel } from "@/components/story/story-status-panel";
+import { JourneyPath } from "@/components/story/journey-path";
 
 function StoryBackground() {
     return (
@@ -137,8 +138,15 @@ export default function StoryModePage() {
         <div className="relative min-h-screen flex flex-col bg-background select-none">
             <StoryBackground />
             <StoryHud />
+            {zoneInfo && (
+                <JourneyPath
+                    zone={zone}
+                    act={act}
+                    totalActs={zoneInfo.acts.length}
+                />
+            )}
 
-            <main className="flex-1 relative z-10 flex flex-col md:flex-row min-h-0 overflow-hidden" style={{ height: "calc(100vh - 52px)" }}>
+            <main className="flex-1 relative z-10 flex flex-col md:flex-row min-h-0 overflow-hidden" style={{ height: zoneInfo ? "calc(100vh - 52px - 36px)" : "calc(100vh - 52px)" }}>
                 <div className="flex-1 min-h-0 flex flex-col min-w-0">
                     <div className="px-4 py-3 border-b border-border bg-card flex items-center shrink-0">
                         <motion.button

@@ -299,6 +299,9 @@ importers:
       framer-motion:
         specifier: ^11.18.2
         version: 11.18.2(react-dom@18.3.1)(react@18.3.1)
+      howler:
+        specifier: ^2.2.4
+        version: 2.2.4
       immer:
         specifier: ^11.1.4
         version: 11.1.4
@@ -402,6 +405,9 @@ importers:
       '@types/bcrypt':
         specifier: ^6.0.0
         version: 6.0.0
+      '@types/howler':
+        specifier: ^2.2.12
+        version: 2.2.12
       '@types/jsonwebtoken':
         specifier: ^9.0.5
         version: 9.0.10
@@ -3979,6 +3985,10 @@ packages:
       '@types/serve-static': 1.15.10
     dev: true
 
+  /@types/howler@2.2.12:
+    resolution: {integrity: sha512-hy769UICzOSdK0Kn1FBk4gN+lswcj1EKRkmiDtMkUGvFfYJzgaDXmVXkSShS2m89ERAatGIPnTUlp2HhfkVo5g==}
+    dev: true
+
   /@types/http-errors@2.0.5:
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
     dev: true
@@ -6836,6 +6846,10 @@ packages:
 
   /hls.js@1.6.15:
     resolution: {integrity: sha512-E3a5VwgXimGHwpRGV+WxRTKeSp2DW5DI5MWv34ulL3t5UNmyJWCQ1KmLEHbYzcfThfXG8amBL+fCYPneGHC4VA==}
+    dev: false
+
+  /howler@2.2.4:
+    resolution: {integrity: sha512-iARIBPgcQrwtEr+tALF+rapJ8qSc+Set2GJQl7xT1MQzWaVkFebdJhR3alVlSiUf5U7nAANKuj3aWpwerocD5w==}
     dev: false
 
   /html-encoding-sniffer@3.0.0:

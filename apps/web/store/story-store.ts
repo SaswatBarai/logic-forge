@@ -76,6 +76,10 @@ export interface StoryState {
     choices: string[] | null;
     waitingForChoice: boolean;
 
+    // ── Audio (BGM intensity 0=calm → 3=climactic) ──
+    audioIntensity: 0 | 1 | 2 | 3;
+    setAudioIntensity: (level: 0 | 1 | 2 | 3) => void;
+
     // ── Actions ──
     startZone: (zone: StoryZone) => void;
     setZoneCompleted: (zone: StoryZone) => void;
@@ -163,6 +167,7 @@ const initialState = {
     streamingText: "",
     choices: null as string[] | null,
     waitingForChoice: false,
+    audioIntensity: 0 as 0 | 1 | 2 | 3,
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -191,6 +196,7 @@ export const useStoryStore = create<StoryState>()(
             s.showRankUp = null;
             s.showBossGate = false;
             s.zoneCompleteScreen = false;
+            s.audioIntensity = 0;
         }),
 
         setZoneCompleted: (zone) => set((s) => {
@@ -290,6 +296,7 @@ export const useStoryStore = create<StoryState>()(
 
         setEnergyMeter: (value) => set((s) => { s.energyMeter = value; }),
         setAct: (act) => set((s) => { s.act = act; }),
+        setAudioIntensity: (level) => set((s) => { s.audioIntensity = level; }),
 
         reset: () => set((s) => ({
             ...initialState,
