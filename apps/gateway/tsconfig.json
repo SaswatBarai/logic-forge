@@ -1,0 +1,18 @@
+{
+    "extends": "@logicforge/tsconfig/node.json",
+    "compilerOptions": {
+        "outDir": "dist",
+        "rootDir": "src",
+        "strict": true,
+        "noEmit": false,
+        "module": "nodenext",
+        "moduleResolution": "nodenext"
+    },
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
+    ]
+}
