@@ -1,5 +1,5 @@
 // ─── @logicforge/logger — Structured Logging ─────────────────────────
-import pino from "pino";
+import { pino } from "pino";
 
 export interface LoggerOptions {
     service: string;
