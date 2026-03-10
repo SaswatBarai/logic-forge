@@ -15,8 +15,10 @@ import {
     OpponentTelemetryPayload,
 } from "@/store/game-store";
 
-const GAME_WS_URL = process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:3001";
-const GAME_API_URL = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:3001";
+const GAME_WS_URL =
+    process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:8080/api/game";
+const GAME_API_URL =
+    process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:8080/api/game";
 
 let _socket: Socket | null = null;
 
