@@ -3,8 +3,6 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: logicforge-postgres
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
@@ -12,7 +10,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -23,15 +21,13 @@ services:
   mongo:
     image: mongo:6.0
     container_name: logicforge-mongo
-    ports:
-      - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
     volumes:
       - mongo_data:/data/db
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
@@ -42,12 +38,10 @@ services:
   redis:
     image: redis:7-alpine
     container_name: logicforge-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -60,13 +54,11 @@ services:
       context: ./apps/code-runner
       dockerfile: Dockerfile
     container_name: logicforge-code-runner
-    ports:
-      - "3004:3004"
     environment:
       - PORT_CODE_RUNNER=3004
       - NODE_ENV=development
     networks:
-      - logicforge-net
+      - internal-net
 
   # 5. Question Engine
   question-engine:
@@ -74,8 +66,6 @@ services:
       context: .
       dockerfile: apps/question-engine/Dockerfile
     container_name: logicforge-question-engine
-    ports:
-      - "3002:3002"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/logicforge?schema=public
       MONGO_URL: mongodb://admin:password@mongo:27017/logicforge_auth?authSource=admin
@@ -90,7 +80,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3002/api/v1/health || exit 1"]
       interval: 10s
@@ -104,8 +94,6 @@ services:
       context: .
       dockerfile: apps/anti-cheat/Dockerfile
     container_name: logicforge-anti-cheat
-    ports:
-      - "3003:3003"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/logicforge?schema=public
       MONGO_URL: mongodb://admin:password@mongo:27017/logicforge_auth?authSource=admin
@@ -120,7 +108,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3003/api/health || exit 1"]
       interval: 10s
@@ -134,8 +122,6 @@ services:
       context: .
       dockerfile: apps/game-api/Dockerfile
     container_name: logicforge-game-api
-    ports:
-      - "3001:3001"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/logicforge?schema=public
       MONGO_URL: mongodb://admin:password@mongo:27017/logicforge_auth?authSource=admin
@@ -159,7 +145,7 @@ services:
       anti-cheat:
         condition: service_healthy
     networks:
-      - logicforge-net
+      - internal-net
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/v1/health || exit 1"]
       interval: 10s
@@ -167,13 +153,46 @@ services:
       retries: 5
       start_period: 15s
 
-  # 7. Web Frontend (Next.js)
+  # 8. API Gateway
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    container_name: logicforge-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      GAME_API_URL: http://game-api:3001
+      QUESTION_ENGINE_URL: http://question-engine:3002
+      ANTI_CHEAT_URL: http://anti-cheat:3003
+      CODE_RUNNER_URL: http://code-runner:3004
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-secret-change-me}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-password}@redis:6379
+      WEB_URL: http://localhost:3000
+      NODE_ENV: production
+    depends_on:
+      game-api:
+        condition: service_healthy
+      question-engine:
+        condition: service_healthy
+      anti-cheat:
+        condition: service_healthy
+      code-runner:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - public-net
+      - internal-net
+
+  # 9. Web Frontend (Next.js)
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_GAME_API_URL: http://localhost:3001
+        NEXT_PUBLIC_GAME_API_URL: http://localhost:8080/api/game
         NEXT_PUBLIC_APP_URL: http://localhost:3000
     container_name: logicforge-web
     ports:
@@ -192,13 +211,16 @@ services:
       QUESTION_ENGINE_URL: http://question-engine:3002
       INTER_SERVICE_SECRET: ${INTER_SERVICE_SECRET:-dev-inter-service-secret}
       NODE_ENV: development
+      GATEWAY_URL: http://gateway:8080
+      HOSTNAME: 0.0.0.0
     depends_on:
-      game-api:
-        condition: service_healthy
+      gateway:
+        condition: service_started
       postgres:
         condition: service_healthy
     networks:
-      - logicforge-net
+      - public-net
+      - internal-net
 
 
 volumes:
@@ -207,5 +229,8 @@ volumes:
   redis_data:
 
 networks:
-  logicforge-net:
+  public-net:
     driver: bridge
+  internal-net:
+    driver: bridge
+    internal: true
