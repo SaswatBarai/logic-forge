@@ -66,6 +66,7 @@ services:
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       PORT_GAME_API: 3001
       NODE_ENV: production
+      WEB_URL: ${NEXT_PUBLIC_APP_URL}
       QUESTION_ENGINE_URL: http://question-engine:3002
       CODE_RUNNER_URL: http://code-runner:3004
       ANTI_CHEAT_URL: http://anti-cheat:3003

@@ -25,6 +25,7 @@ let _socket: Socket | null = null;
 export function getSocket(): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
+            path: "/api/game/socket.io",
             transports: ["websocket", "polling"],
             reconnection: true,
             reconnectionDelay: 2_000,
