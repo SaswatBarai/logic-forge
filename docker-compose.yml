@@ -194,7 +194,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_GAME_API_URL: http://localhost:8080/api/game
-        NEXT_PUBLIC_GAME_WS_URL: http://localhost:8080/api/game
+        NEXT_PUBLIC_GAME_WS_URL: http://localhost:8080
         NEXT_PUBLIC_APP_URL: http://localhost:3000
     container_name: logicforge-web
     ports:

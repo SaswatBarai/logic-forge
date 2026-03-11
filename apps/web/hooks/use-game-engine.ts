@@ -16,7 +16,7 @@ import {
 } from "@/store/game-store";
 
 const GAME_WS_URL =
-    process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:8080/api/game";
+    process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:8080";
 const GAME_API_URL =
     process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:8080/api/game";
 
