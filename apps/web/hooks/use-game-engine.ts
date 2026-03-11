@@ -26,7 +26,8 @@ export function getSocket(): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
             path: "/api/game/socket.io",
-            transports: ["websocket", "polling"],
+            // Try polling first so connection works through Cloudflare Tunnel even if WSS fails
+            transports: ["polling", "websocket"],
             reconnection: true,
             reconnectionDelay: 2_000,
             reconnectionAttempts: 5,
