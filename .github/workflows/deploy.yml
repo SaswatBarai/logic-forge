@@ -1,0 +1,65 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck gateway
+        run: pnpm exec tsc --noEmit -p apps/gateway/tsconfig.json
+
+  deploy:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 15m
+          script: |
+            set -e
+
+            cd ~/logic-forge
+
+            echo "=== Pulling latest code ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Building and deploying ==="
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+            echo "=== Waiting for services ==="
+            sleep 15
+
+            echo "=== Health checks ==="
+            curl -sf http://localhost:8080/health || (echo "Gateway failed!" && exit 1)
+            curl -sf -o /dev/null http://localhost:3000 || (echo "Web failed!" && exit 1)
+
+            echo "=== Cleanup ==="
+            docker image prune -f
+
+            echo "=== Deploy complete ==="
+            docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck gateway
+        run: pnpm exec tsc --noEmit -p apps/gateway/tsconfig.json
+
+      - name: Typecheck game-api
+        run: pnpm exec tsc --noEmit -p apps/game-api/tsconfig.json
+
+      - name: Lint
+        run: pnpm run lint
+        continue-on-error: true
