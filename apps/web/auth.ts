@@ -139,8 +139,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Expose a signed JWT so the client can send Authorization: Bearer when calling the gateway (e.g. matchmaker)
       const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
       if (secret) {
+        // Strip NextAuth's own JWT claims (exp, iat, jti) before re-signing.
+        // If we spread them AND pass expiresIn, jsonwebtoken throws:
+        //   "Bad options.expiresIn option the payload already has an exp property"
+        const { exp: _exp, iat: _iat, jti: _jti, ...tokenPayload } = token as any;
         (session as any).accessToken = jwt.sign(
-          { ...token },
+          tokenPayload,
           secret,
           { expiresIn: "30d" }
         );
