@@ -37,11 +37,11 @@ export function getSocket(token?: string | null): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
             path: "/api/game/socket.io",
-            // Try polling first so connection works through Cloudflare Tunnel even if WSS fails
-            transports: ["polling", "websocket"],
+            // Cloudflare Tunnel supports WebSocket; polling fails with ERR_INTERNET_DISCONNECTED
+            transports: ["websocket"],
             reconnection: true,
             reconnectionDelay: 2_000,
-            reconnectionAttempts: 5,
+            reconnectionAttempts: 10,
             autoConnect: true,
             // Pass the NextAuth accessToken so the gateway authMiddleware can validate it
             auth: { token: token ?? "" },
