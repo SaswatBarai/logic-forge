@@ -27,7 +27,13 @@ const GATEWAY_BASE =
 
 let _socket: Socket | null = null;
 
-export function getSocket(): Socket {
+/**
+ * Returns the shared Socket.io singleton.
+ * Pass `token` the first time (or when you need to recreate with new credentials).
+ * The token is sent as `Authorization: Bearer <token>` on every polling request
+ * so the gateway auth middleware can validate it.
+ */
+export function getSocket(token?: string | null): Socket {
     if (!_socket) {
         _socket = io(GAME_WS_URL, {
             path: "/api/game/socket.io",
@@ -37,10 +43,37 @@ export function getSocket(): Socket {
             reconnectionDelay: 2_000,
             reconnectionAttempts: 5,
             autoConnect: true,
+            // Pass the NextAuth accessToken so the gateway authMiddleware can validate it
+            auth: { token: token ?? "" },
+            extraHeaders: token
+                ? { Authorization: `Bearer ${token}` }
+                : {},
         });
     }
     return _socket;
 }
+
+/**
+ * Update the auth token on an existing socket and reconnect if needed.
+ * Call this as soon as session.accessToken becomes available.
+ */
+export function updateSocketToken(token: string): void {
+    if (!_socket) {
+        // Socket not created yet — it will be created with the token via getSocket()
+        return;
+    }
+    // socket.io exposes auth as a mutable property
+    (_socket as any).auth = { token };
+    (_socket as any).io.opts.extraHeaders = { Authorization: `Bearer ${token}` };
+
+    if (!_socket.connected) {
+        _socket.connect();
+    } else {
+        // Reconnect so the new credentials take effect on the next handshake
+        _socket.disconnect().connect();
+    }
+}
+
 
 export function useGameEngine() {
     const { data: session } = useSession();
@@ -51,6 +84,21 @@ export function useGameEngine() {
     const userIdRef = useRef<string | null>(null);
     userIdRef.current =
         session?.user?.email ?? session?.user?.id ?? null;
+
+    // ── Inject auth token into the socket as soon as the session is available ──
+    // The gateway authMiddleware requires Authorization: Bearer <token> on every
+    // request (including socket.io polling). Without this the gateway returns 401.
+    useEffect(() => {
+        const token = (session as { accessToken?: string } | null)?.accessToken;
+        if (!token) return;
+        // If socket hasn't been created yet, create it with the token now.
+        // If it already exists, updateSocketToken will reconnect with new credentials.
+        if (!_socket) {
+            getSocket(token);
+        } else {
+            updateSocketToken(token);
+        }
+    }, [session]);
 
     const {
         setConnected, setSocketStatus, setMatchStatus, setQueueError,
