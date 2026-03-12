@@ -49,15 +49,12 @@ import GitHub from "next-auth/providers/github";
 import jwt from "jsonwebtoken";
 import { getMongooseAuthAdapter } from "@logicforge/db";
 
-// Production over HTTPS: NextAuth uses __Secure- prefix; set domain so the cookie
-// is sent to the API subdomain (e.g. logicforge-api.saswat.app).
+// Production over HTTPS: NextAuth uses __Secure- prefix. Cookie is host-only (no domain)
+// so it sticks reliably after OAuth; API subdomain uses Authorization: Bearer from frontend.
 const useSecureCookies =
   process.env.NODE_ENV === "production" &&
   (process.env.NEXTAUTH_URL ?? "").startsWith("https://");
 const cookiePrefix = useSecureCookies ? "__Secure-" : "";
-const cookieDomain = useSecureCookies && (process.env.NEXTAUTH_URL ?? "").includes("saswat.app")
-  ? ".saswat.app"
-  : undefined;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -76,7 +73,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         sameSite: "lax",
         path: "/",
         secure: useSecureCookies,
-        ...(cookieDomain ? { domain: cookieDomain } : {}),
       },
     },
   },
@@ -95,6 +91,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
 
   callbacks: {
+    // Only redirect to same origin so the session cookie is set on the correct host
+    redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      try {
+        if (new URL(url).origin === baseUrl) return url;
+      } catch {
+        // invalid url
+      }
+      return `${baseUrl}/dashboard`;
+    },
     // Runs at login — embed DB user data into the JWT token
     async jwt({ token, user }) {
       if (user) {

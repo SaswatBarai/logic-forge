@@ -70,11 +70,15 @@ function LoginForm() {
     }
   };
 
+  // Full callback URL so Auth.js redirects to same origin (avoids wrong baseUrl in proxy/Docker)
+  const dashboardCallbackUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/dashboard` : "/dashboard";
+
   // Handle GitHub OAuth Login
   const handleGithubLogin = async () => {
     setIsGithubLoading(true);
     try {
-      await signIn("github", { callbackUrl: "/dashboard" });
+      await signIn("github", { callbackUrl: dashboardCallbackUrl });
     } catch (error) {
       console.error("GitHub Auth failed:", error);
     } finally {
@@ -86,7 +90,7 @@ function LoginForm() {
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     try {
-      await signIn("google", { callbackUrl: "/dashboard" });
+      await signIn("google", { callbackUrl: dashboardCallbackUrl });
     } catch (error) {
       console.error("Google Auth failed:", error);
     } finally {
