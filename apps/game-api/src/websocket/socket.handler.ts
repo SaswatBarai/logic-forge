@@ -169,7 +169,11 @@ export function registerSocketHandlers(
                     await roundService.startRound(io, sessionId, 1);
                 }
             } catch (err) {
-                logger.error({ err }, "Error in PLAYER_READY handler");
+                logger.error({ err, sessionId }, "Error in PLAYER_READY handler");
+                io.to(sessionId).emit("SESSION_ERROR", {
+                    code: "ROUND_START_FAILED",
+                    message: "Failed to start round. Please try again.",
+                });
             }
         });
 

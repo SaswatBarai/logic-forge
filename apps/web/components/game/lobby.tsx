@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { motion }              from "framer-motion";
 import { useGameEngine }       from "@/hooks/use-game-engine";
-import { Loader2, Swords, CheckCircle2, User, Users } from "lucide-react";
+import { useGameStore }        from "@/store/game-store";
+import { Loader2, Swords, CheckCircle2, User, Users, AlertCircle, RotateCcw } from "lucide-react";
 
 export function MatchLobby() {
     const { sessionStatus, sessionId, config, readyUp } = useGameEngine();
+    const { error, reset } = useGameStore();
     const [isReady,   setIsReady]   = useState(false);
     const [countdown, setCountdown] = useState(2);
 
@@ -27,6 +29,36 @@ export function MatchLobby() {
     }, [sessionId, isSingle]);
 
     if (sessionStatus === "ACTIVE") return null;
+
+    if (error) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 lg:py-24 max-w-7xl mx-auto w-full">
+                <motion.div
+                    className="flex flex-col items-center gap-6 max-w-md"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
+                    <div className="flex items-center gap-3 px-5 py-4 border-2 border-destructive/50 bg-destructive/10 rounded-lg w-full">
+                        <AlertCircle className="size-6 text-destructive shrink-0" />
+                        <p className="text-sm font-medium text-foreground">{error}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                        This can happen if no challenges are loaded yet. Try again or ask an admin to seed the database.
+                    </p>
+                    <motion.button
+                        type="button"
+                        className="arcade-btn px-8 py-4 border-2 border-foreground shadow-retro font-black uppercase tracking-widest flex items-center gap-2 bg-primary hover:bg-primary/90"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => reset()}
+                    >
+                        <RotateCcw className="size-4" />
+                        Try Again
+                    </motion.button>
+                </motion.div>
+            </div>
+        );
+    }
 
     const handleReadyClick = () => {
         if (isReady) return;

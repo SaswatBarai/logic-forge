@@ -157,6 +157,7 @@ model Challenge {
   @@index([category, difficulty])
   @@index([language])
   @@index([active])
+  @@unique([title, language, category])
 }
 
 model Submission {

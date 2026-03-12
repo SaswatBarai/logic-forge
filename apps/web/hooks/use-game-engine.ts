@@ -105,7 +105,7 @@ export function useGameEngine() {
         applyMatched, setQueuedUserId, applySessionJoined, applyPlayerConnected,
         applyRoundStart, applyRoundResult, applyTimerSync,
         applySessionEnd, applySessionAborted, applyOpponentProgress, applyOpponentTelemetry,
-        applySurvivalContinue, applySurvivalEnded,
+        applySurvivalContinue, applySurvivalEnded, applyError,
     } = useGameStore();
 
     const joinSession = useCallback((sessionId: string, userIdOverride?: string) => {
@@ -175,9 +175,9 @@ export function useGameEngine() {
             joinSession(p.sessionId, userId);
         });
 
-        socket.on("SESSION_ERROR", (p: { message: string }) => {
-            console.error("[WS] SESSION_ERROR:", p.message);
-            setQueueError(p.message ?? "Failed to join session");
+        socket.off("SESSION_ERROR").on("SESSION_ERROR", (p: { code: string; message: string }) => {
+            console.error("[WS] SESSION_ERROR", p);
+            applyError(p.message ?? "Something went wrong. Please try again.");
         });
 
         socket.off("SESSION_JOINED").on("SESSION_JOINED", (p: SessionJoinedPayload) => {

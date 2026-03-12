@@ -579,6 +579,10 @@ export class RoundService {
                     await this.startRound(io, sessionId, liveState.currentRound);
                 } catch (err) {
                     logger.error({ err, sessionId }, "Error starting next round after timer expiry");
+                    io.to(sessionId).emit("SESSION_ERROR", {
+                        code: "ROUND_START_FAILED",
+                        message: "Failed to start next round.",
+                    });
                 }
             }, 3500);
         }
@@ -703,6 +707,10 @@ export class RoundService {
                         await this.startRound(io, sessionId, liveState.currentRound);
                     } catch (err) {
                         logger.error({ err, sessionId }, "Error starting next round after live advance");
+                        io.to(sessionId).emit("SESSION_ERROR", {
+                            code: "ROUND_START_FAILED",
+                            message: "Failed to start next round.",
+                        });
                     }
                 }, 3500);
             }
@@ -853,6 +861,10 @@ export class RoundService {
                         await this.startRound(io, sessionId, liveState.currentRound);
                     } catch (err) {
                         logger.error({ err, sessionId }, "Error starting next round");
+                        io.to(sessionId).emit("SESSION_ERROR", {
+                            code: "ROUND_START_FAILED",
+                            message: "Failed to start next round.",
+                        });
                     }
                 }, 3500);
             }

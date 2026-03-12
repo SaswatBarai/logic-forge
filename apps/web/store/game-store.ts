@@ -109,6 +109,8 @@ interface GameState {
     survivalActive: boolean;
     /** True when the player won and needs to choose: continue streak or leave */
     survivalPendingChoice: boolean;
+    /** Session error message (e.g. ROUND_START_FAILED) — shown in lobby with retry */
+    error: string | null;
 
     setConnected: (v: boolean) => void;
     setSocketStatus: (v: GameState["socketStatus"]) => void;
@@ -132,6 +134,8 @@ interface GameState {
     applySurvivalContinue: (payload: { streak: number; bonusTimeMs: number }) => void;
     /** Called on SURVIVAL_ENDED: sets active false, final streak and total wins for results screen */
     applySurvivalEnded: (payload: { finalStreak: number; totalWins: number }) => void;
+    /** Called on SESSION_ERROR from server — sets error message so lobby can show retry */
+    applyError: (message: string) => void;
     dismissResultOverlay: () => void;
     reset: () => void;
 }
@@ -211,6 +215,7 @@ const initialState = {
     survivalBonusTime: 0,
     survivalActive: false,
     survivalPendingChoice: false,
+    error: null as string | null,
 };
 
 export const useGameStore = create<GameState>()(
@@ -376,6 +381,10 @@ export const useGameStore = create<GameState>()(
             s.survivalActive = false;
             s.survivalStreak = payload.finalStreak;
             s.survivalTotalWins = payload.totalWins;
+        }),
+
+        applyError: (message) => set((s) => {
+            s.error = message;
         }),
 
         dismissResultOverlay: () => set((s) => { s.showResultOverlay = false; }),
