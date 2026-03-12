@@ -91,15 +91,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
 
   callbacks: {
-    // Only redirect to same origin so the session cookie is set on the correct host
+    // Redirect to the canonical public origin so the session cookie lands on the
+    // right host. We must derive the public base from NEXTAUTH_URL because inside
+    // Docker the internal `baseUrl` can be "http://web:3000" even when the
+    // callbackUrl carries "https://logicforge.saswat.app/dashboard".
     redirect({ url, baseUrl }) {
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      const publicBase =
+        process.env.NEXTAUTH_URL ??
+        process.env.AUTH_URL ??
+        baseUrl;
+
+      // Relative path — resolve against the public base
+      if (url.startsWith("/")) return `${publicBase}${url}`;
+
       try {
-        if (new URL(url).origin === baseUrl) return url;
+        const parsed = new URL(url);
+        // Accept any path from any recognised origin (internal Docker or public)
+        const knownOrigins = [
+          new URL(publicBase).origin,
+          new URL(baseUrl).origin,
+        ];
+        if (knownOrigins.includes(parsed.origin)) {
+          // Re-attach path/search to the public origin
+          return `${new URL(publicBase).origin}${parsed.pathname}${parsed.search}`;
+        }
       } catch {
-        // invalid url
+        // invalid url — fall through to safe default
       }
-      return `${baseUrl}/dashboard`;
+      return `${publicBase}/dashboard`;
     },
     // Runs at login — embed DB user data into the JWT token
     async jwt({ token, user }) {

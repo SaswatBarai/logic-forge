@@ -3,13 +3,10 @@ import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 
-// Same cookie name/domain as auth.ts so Edge Middleware finds the session cookie
+// Cookie prefix matches auth.ts so the edge middleware can read the session cookie.
+// Do NOT set a domain — keep it host-only (same as what auth.ts produces).
 const isProd = process.env.NODE_ENV === "production";
 const cookiePrefix = isProd ? "__Secure-" : "";
-const cookieDomain =
-    isProd && (process.env.NEXTAUTH_URL ?? "").includes("saswat.app")
-        ? ".saswat.app"
-        : undefined;
 
 export const authConfig = {
     trustHost: true,
@@ -24,7 +21,7 @@ export const authConfig = {
                 sameSite: "lax",
                 path: "/",
                 secure: isProd,
-                ...(cookieDomain ? { domain: cookieDomain } : {}),
+                // No `domain` — stay host-only to match what auth.ts sets at sign-in
             },
         },
     },
