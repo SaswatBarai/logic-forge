@@ -48,12 +48,15 @@ import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import { getMongooseAuthAdapter } from "@logicforge/db";
 
-// In production with a shared parent domain (e.g. *.saswat.app), set cookie domain
-// so the session cookie is sent to the API subdomain (e.g. logicforge-api.saswat.app).
-const isProductionWithSharedDomain =
+// Production over HTTPS: NextAuth uses __Secure- prefix; set domain so the cookie
+// is sent to the API subdomain (e.g. logicforge-api.saswat.app).
+const useSecureCookies =
   process.env.NODE_ENV === "production" &&
-  (process.env.NEXTAUTH_URL ?? "").includes("saswat.app");
-const cookieDomain = isProductionWithSharedDomain ? ".saswat.app" : undefined;
+  (process.env.NEXTAUTH_URL ?? "").startsWith("https://");
+const cookiePrefix = useSecureCookies ? "__Secure-" : "";
+const cookieDomain = useSecureCookies && (process.env.NEXTAUTH_URL ?? "").includes("saswat.app")
+  ? ".saswat.app"
+  : undefined;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -66,7 +69,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
   cookies: {
     sessionToken: {
+      name: `${cookiePrefix}next-auth.session-token`,
       options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: useSecureCookies,
         ...(cookieDomain ? { domain: cookieDomain } : {}),
       },
     },

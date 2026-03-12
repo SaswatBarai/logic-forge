@@ -41,10 +41,12 @@ export function authMiddleware(
         token = authHeader.slice(7);
     }
 
-    // 2. Fallback: next-auth.session-token cookie
+    // 2. Fallback: next-auth session cookie (dev vs production name)
     if (!token) {
         const cookies = req.cookies as Record<string, string | undefined>;
-        token = cookies["next-auth.session-token"];
+        token =
+            cookies["next-auth.session-token"] ??
+            cookies["__Secure-next-auth.session-token"];
     }
 
     if (!token) {
