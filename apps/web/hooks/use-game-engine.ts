@@ -308,6 +308,7 @@ export function useGameEngine() {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ mode: "ARCADE", ...payload, userId, socketId }),
+                credentials: "include",
             });
 
             if (!res.ok) {
