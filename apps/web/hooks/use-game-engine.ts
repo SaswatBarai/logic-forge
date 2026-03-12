@@ -17,8 +17,13 @@ import {
 
 const GAME_WS_URL =
     process.env.NEXT_PUBLIC_GAME_WS_URL || "http://localhost:8080";
-const GAME_API_URL =
-    process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:8080/api/game";
+// Base gateway URL (no path) — sessions are at /api/game/api/v1/sessions to avoid doubling
+const GATEWAY_BASE =
+    process.env.NEXT_PUBLIC_GATEWAY_URL ||
+    (() => {
+        const u = process.env.NEXT_PUBLIC_GAME_API_URL || "http://localhost:8080/api/game";
+        return u.replace(/\/api\/game\/?$/, "") || "http://localhost:8080";
+    })();
 
 let _socket: Socket | null = null;
 
@@ -304,9 +309,13 @@ export function useGameEngine() {
 
         try {
             const socketId = socket.connected ? socket.id : undefined;
-            const res = await fetch(`${GAME_API_URL}/api/v1/sessions`, {
+            const token = (session as { accessToken?: string } | null)?.accessToken ?? null;
+            const res = await fetch(`${GATEWAY_BASE}/api/game/api/v1/sessions`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
                 body: JSON.stringify({ mode: "ARCADE", ...payload, userId, socketId }),
                 credentials: "include",
             });
@@ -330,7 +339,7 @@ export function useGameEngine() {
             console.error("[enterQueue] failed:", err);
             setQueueError(err.message ?? "Failed to enter queue");
         }
-    }, [applyMatched, setQueuedUserId, setQueueError, joinSession]);
+    }, [applyMatched, setQueuedUserId, setQueueError, joinSession, session]);
 
     const confirmSurvivalContinue = useCallback(() => {
         const store = useGameStore.getState();

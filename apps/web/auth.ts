@@ -46,6 +46,7 @@ if (process.env.NODE_ENV === "development" && !process.env.AUTH_SECRET && !proce
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
+import jwt from "jsonwebtoken";
 import { getMongooseAuthAdapter } from "@logicforge/db";
 
 // Production over HTTPS: NextAuth uses __Secure- prefix; set domain so the cookie
@@ -109,6 +110,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).id = token.id as string;
         (session.user as any).displayName = token.displayName as string;
         (session.user as any).bio = token.bio as string;
+      }
+      // Expose a signed JWT so the client can send Authorization: Bearer when calling the gateway (e.g. matchmaker)
+      const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
+      if (secret) {
+        (session as any).accessToken = jwt.sign(
+          { ...token },
+          secret,
+          { expiresIn: "30d" }
+        );
       }
       return session;
     },

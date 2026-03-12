@@ -10,6 +10,10 @@ export const metadata: Metadata = {
   title: "LogicForge - AI-Proof Technical Evaluation",
   description:
     "The gamified, AI-proof technical evaluation platform built to test engineering intuition, not just memorization.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+  },
   openGraph: {
     title: "LogicForge - AI-Proof Technical Evaluation",
     description:

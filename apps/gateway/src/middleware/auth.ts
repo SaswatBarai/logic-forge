@@ -57,6 +57,10 @@ export function authMiddleware(
     try {
         const payload = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
         req.userId = payload.sub;
+        // Forward token and identity so downstream (e.g. game-api proxy) receives auth
+        req.headers["authorization"] = `Bearer ${token}`;
+        req.headers["x-user-id"] = payload.sub ?? "";
+        req.headers["x-user-email"] = (payload as { email?: string }).email ?? "";
         next();
     } catch (err) {
         logger.warn({ err }, "JWT verification failed");
