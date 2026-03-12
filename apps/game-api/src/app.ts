@@ -12,7 +12,14 @@ export const logger = createLogger({ service: "game-api" });
 export const app: Express = express();
 
 app.use(helmet());
-app.use(cors());
+// CORS: allow frontend origin (same as gateway); required when response is proxied and browser sees this service’s headers
+const allowedOrigin = process.env.WEB_URL ?? "http://localhost:3000";
+app.use(
+    cors({
+        origin: allowedOrigin,
+        credentials: true,
+    })
+);
 app.use(express.json());
 
 import sessionRoutes from "./routes/session.routes";
