@@ -74,6 +74,21 @@ export class SessionService {
         return redis.get(`socket:${userId}`);
     }
 
+    async setActiveSession(userId: string, sessionId: string): Promise<void> {
+        const redis = await getRedisClient();
+        await redis.setEx(`active:session:${userId}`, SESSION_TTL, sessionId);
+    }
+
+    async getActiveSession(userId: string): Promise<string | null> {
+        const redis = await getRedisClient();
+        return redis.get(`active:session:${userId}`);
+    }
+
+    async clearActiveSession(userId: string): Promise<void> {
+        const redis = await getRedisClient();
+        await redis.del(`active:session:${userId}`);
+    }
+
     async markPlayerJoined(sessionId: string, userId: string): Promise<number> {
         const redis = await getRedisClient();
         const key = `session:${sessionId}:joined`;

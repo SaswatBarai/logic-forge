@@ -75,10 +75,26 @@ export function registerSocketHandlers(
                 socket.data.userId = userId;
                 logger.info({ userId, socketId: socket.id }, "Identified");
 
+                // Re-join active session room after reconnect so broadcast events still reach this socket
+                const activeSessionId = await sessionService.getActiveSession(userId);
+                if (activeSessionId) {
+                    const activeSession = await sessionService.getSession(activeSessionId);
+                    if (activeSession && !socket.rooms.has(activeSessionId)) {
+                        await socket.join(activeSessionId);
+                        socket.data.sessionId = activeSessionId;
+                        logger.info({ userId, sessionId: activeSessionId, socketId: socket.id }, "Re-joined active session room after reconnect");
+                    }
+                }
+
                 const pendingSessionId = await sessionService.getPendingMatch(userId);
                 if (pendingSessionId) {
                     const session = await sessionService.getSession(pendingSessionId);
                     if (session) {
+                        if (!socket.rooms.has(pendingSessionId)) {
+                            await socket.join(pendingSessionId);
+                            socket.data.sessionId = pendingSessionId;
+                            logger.info({ userId, sessionId: pendingSessionId, socketId: socket.id }, "Re-joined pending session room after reconnect");
+                        }
                         socket.emit("MATCHED", { status: "MATCHED", sessionId: pendingSessionId });
                         logger.info({ userId, pendingSessionId }, "Re-delivered MATCHED after reconnect");
                     }
@@ -119,6 +135,7 @@ export function registerSocketHandlers(
                 socket.data.userId = userId;
 
                 await sessionService.markPlayerJoined(sessionId, userId);
+                await sessionService.setActiveSession(userId, sessionId);
                 const { players } = await sessionService.serialize(session);
 
                 const payload = {
@@ -150,6 +167,13 @@ export function registerSocketHandlers(
             try {
                 const session = await sessionService.getSession(sessionId);
                 if (!session) return;
+
+                // Ensure socket is in the room (may have been lost after reconnect)
+                if (!socket.rooms.has(sessionId)) {
+                    await socket.join(sessionId);
+                    socket.data.sessionId = sessionId;
+                    logger.info({ userId, sessionId, socketId: socket.id }, "PLAYER_READY: re-joined room");
+                }
 
                 const readyCount = await sessionService.markPlayerReady(sessionId, userId);
 

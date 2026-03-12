@@ -35,15 +35,14 @@ let _socket: Socket | null = null;
  */
 export function getSocket(token?: string | null): Socket {
     if (!_socket) {
+        _lastToken = token ?? null;
         _socket = io(GAME_WS_URL, {
             path: "/api/game/socket.io",
-            // Cloudflare Tunnel supports WebSocket; polling fails with ERR_INTERNET_DISCONNECTED
             transports: ["websocket"],
             reconnection: true,
             reconnectionDelay: 2_000,
             reconnectionAttempts: 10,
             autoConnect: true,
-            // Pass the NextAuth accessToken so the gateway authMiddleware can validate it
             auth: { token: token ?? "" },
             extraHeaders: token
                 ? { Authorization: `Bearer ${token}` }
@@ -53,23 +52,26 @@ export function getSocket(token?: string | null): Socket {
     return _socket;
 }
 
+let _lastToken: string | null = null;
+
 /**
  * Update the auth token on an existing socket and reconnect if needed.
  * Call this as soon as session.accessToken becomes available.
  */
 export function updateSocketToken(token: string): void {
     if (!_socket) {
-        // Socket not created yet — it will be created with the token via getSocket()
         return;
     }
-    // socket.io exposes auth as a mutable property
+    // Skip if token hasn't changed — avoids unnecessary reconnects that drop room membership
+    if (_lastToken === token) return;
+    _lastToken = token;
+
     (_socket as any).auth = { token };
     (_socket as any).io.opts.extraHeaders = { Authorization: `Bearer ${token}` };
 
     if (!_socket.connected) {
         _socket.connect();
     } else {
-        // Reconnect so the new credentials take effect on the next handshake
         _socket.disconnect().connect();
     }
 }
