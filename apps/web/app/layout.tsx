@@ -11,8 +11,9 @@ export const metadata: Metadata = {
   description:
     "The gamified, AI-proof technical evaluation platform built to test engineering intuition, not just memorization.",
   icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon.ico",
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
   },
   openGraph: {
     title: "LogicForge - AI-Proof Technical Evaluation",
