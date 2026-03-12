@@ -23,8 +23,13 @@ export function authMiddleware(
     // Skip JWT validation for public routes:
     // - Health check (not under /api, but defensive check)
     // - NextAuth callbacks under /api/auth/*
+    // - Socket.io handshake/polling under /api/game/socket.io (client sends IDENTIFY after connect)
     const originalUrl = req.originalUrl ?? req.url ?? "";
-    if (req.path === "/health" || originalUrl.startsWith("/api/auth/")) {
+    if (
+        req.path === "/health" ||
+        originalUrl.startsWith("/api/auth/") ||
+        originalUrl.startsWith("/api/game/socket.io")
+    ) {
         next();
         return;
     }
