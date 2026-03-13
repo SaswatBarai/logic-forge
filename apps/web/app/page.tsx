@@ -15,7 +15,7 @@ export default function HomePage() {
       <MarqueeTicker />
       <main className="flex-grow">
         <HeroSection />
-        <StatsSection />
+        {/* <StatsSection /> */}
         <CategoriesSection />
         <HowItWorksSection />
         <AntiCheatSection />
